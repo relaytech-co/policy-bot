@@ -20,6 +20,7 @@ import (
 	"github.com/palantir/policy-bot/policy/approval"
 	"github.com/palantir/policy-bot/policy/common"
 	"github.com/palantir/policy-bot/policy/disapproval"
+	"github.com/palantir/policy-bot/policy/predicate"
 	"github.com/palantir/policy-bot/pull"
 	"github.com/pkg/errors"
 )
@@ -55,6 +56,32 @@ type GlobalOptions struct {
 	// ApprovalDefaults defines server-level default values for policies. For
 	// instance, this can change the default approval strings for all policies.
 	ApprovalDefaults *approval.Defaults
+}
+
+// ReferencedWorkflows returns the set of workflow file paths this config can observe.
+// A workflow_run event for anything else cannot change the result, so it needs no evaluation.
+func (c *Config) ReferencedWorkflows() map[string]struct{} {
+	workflows := make(map[string]struct{})
+
+	add := func(p predicate.Predicates) {
+		for _, w := range p.WorkflowPaths() {
+			workflows[w] = struct{}{}
+		}
+	}
+
+	for _, r := range c.ApprovalRules {
+		if r == nil {
+			continue
+		}
+		add(r.Predicates)
+		add(r.Requires.Conditions)
+	}
+
+	if c.Policy.Disapproval != nil {
+		add(c.Policy.Disapproval.Predicates)
+	}
+
+	return workflows
 }
 
 func ParsePolicy(c *Config, opts *GlobalOptions) (common.Evaluator, error) {

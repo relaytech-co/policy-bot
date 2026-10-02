@@ -589,3 +589,100 @@ func TestConfigMarshalYaml(t *testing.T) {
 func castToResult(e common.Evaluator) *common.Result {
 	return (*common.Result)(e.(*StaticEvaluator))
 }
+
+func TestReferencedWorkflows(t *testing.T) {
+	tests := map[string]struct {
+		Config   Config
+		Expected []string
+	}{
+		"empty": {
+			Config: Config{},
+		},
+		"rulePredicate": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "lint",
+						Predicates: predicate.Predicates{
+							HasWorkflowResult: predicate.NewHasWorkflowResult([]string{".github/workflows/lint.yml"}, nil),
+						},
+					},
+				},
+			},
+			Expected: []string{".github/workflows/lint.yml"},
+		},
+		"requiresConditions": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "lint",
+						Requires: approval.Requires{
+							Conditions: predicate.Predicates{
+								HasWorkflowResult: predicate.NewHasWorkflowResult([]string{".github/workflows/lint.yml"}, nil),
+							},
+						},
+					},
+				},
+			},
+			Expected: []string{".github/workflows/lint.yml"},
+		},
+		"disapproval": {
+			Config: Config{
+				Policy: Policy{
+					Disapproval: &disapproval.Policy{
+						Predicates: predicate.Predicates{
+							HasWorkflowResult: predicate.NewHasWorkflowResult([]string{".github/workflows/block.yml"}, nil),
+						},
+					},
+				},
+			},
+			Expected: []string{".github/workflows/block.yml"},
+		},
+		"deduplicatesAcrossRules": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					nil,
+					{
+						Name: "one",
+						Requires: approval.Requires{
+							Conditions: predicate.Predicates{
+								HasWorkflowResult: predicate.NewHasWorkflowResult([]string{".github/workflows/lint.yml"}, nil),
+							},
+						},
+					},
+					{
+						Name: "two",
+						Requires: approval.Requires{
+							Conditions: predicate.Predicates{
+								HasWorkflowResult: predicate.NewHasWorkflowResult([]string{".github/workflows/lint.yml", ".github/workflows/test.yml"}, nil),
+							},
+						},
+					},
+				},
+			},
+			Expected: []string{".github/workflows/lint.yml", ".github/workflows/test.yml"},
+		},
+		"otherPredicatesAreIgnored": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "title",
+						Predicates: predicate.Predicates{
+							Title: &predicate.Title{Matches: []common.Regexp{common.NewCompiledRegexp(regexp.MustCompile("^fix"))}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			var actual []string
+			for w := range test.Config.ReferencedWorkflows() {
+				actual = append(actual, w)
+			}
+			assert.ElementsMatch(t, test.Expected, actual)
+		})
+	}
+}
