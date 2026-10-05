@@ -96,7 +96,7 @@ func (r *OrRequirement) Evaluate(ctx context.Context, prctx pull.Context) common
 	}
 
 	var err error
-	var pending, approved, skipped int
+	var pending, approved, skipped, failed int
 	for _, c := range children {
 		if c.Error != nil {
 			err = c.Error
@@ -108,6 +108,9 @@ func (r *OrRequirement) Evaluate(ctx context.Context, prctx pull.Context) common
 			approved++
 		case common.StatusPending:
 			pending++
+			if c.Failed {
+				failed++
+			}
 		case common.StatusSkipped:
 			skipped++
 		}
@@ -128,7 +131,10 @@ func (r *OrRequirement) Evaluate(ctx context.Context, prctx pull.Context) common
 	}
 
 	return common.Result{
-		Name:              "or",
+		Name: "or",
+		// Any rule that is merely waiting could still approve, so only a branch
+		// where every pending rule has failed is itself failed.
+		Failed:            status == common.StatusPending && failed == pending,
 		Status:            status,
 		StatusDescription: description,
 		Error:             err,
@@ -156,7 +162,7 @@ func (r *AndRequirement) Evaluate(ctx context.Context, prctx pull.Context) commo
 	}
 
 	var err error
-	var pending, approved, skipped int
+	var pending, approved, skipped, failed int
 	for _, c := range children {
 		if c.Error != nil {
 			err = c.Error
@@ -168,6 +174,9 @@ func (r *AndRequirement) Evaluate(ctx context.Context, prctx pull.Context) commo
 			approved++
 		case common.StatusPending:
 			pending++
+			if c.Failed {
+				failed++
+			}
 		case common.StatusSkipped:
 			skipped++
 		}
@@ -186,7 +195,9 @@ func (r *AndRequirement) Evaluate(ctx context.Context, prctx pull.Context) commo
 	}
 
 	return common.Result{
-		Name:              "and",
+		Name: "and",
+		// Every rule has to approve, so one failure is enough to fail the branch.
+		Failed:            status == common.StatusPending && failed > 0,
 		Status:            status,
 		StatusDescription: description,
 		Error:             err,

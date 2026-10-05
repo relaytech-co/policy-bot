@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/palantir/policy-bot/policy/common"
+	"github.com/palantir/policy-bot/pull"
 	"github.com/palantir/policy-bot/pull/pulltest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,5 +69,38 @@ func makeEvalContext(seenPolicy bool) *EvalContext {
 			Path:       ".policy.yml",
 			SeenPolicy: seenPolicy,
 		},
+	}
+}
+
+type staticEvaluator common.Result
+
+func (e *staticEvaluator) Trigger() common.Trigger { return common.TriggerAll }
+
+func (e *staticEvaluator) Evaluate(ctx context.Context, prctx pull.Context) common.Result {
+	return common.Result(*e)
+}
+
+func TestEvaluatePolicyStatusState(t *testing.T) {
+	tests := map[string]struct {
+		Result   common.Result
+		Expected string
+	}{
+		"approved":          {common.Result{Status: common.StatusApproved}, "success"},
+		"disapproved":       {common.Result{Status: common.StatusDisapproved}, "failure"},
+		"pendingAndWaiting": {common.Result{Status: common.StatusPending}, "pending"},
+		"pendingAndFailed":  {common.Result{Status: common.StatusPending, Failed: true}, "failure"},
+		"skipped":           {common.Result{Status: common.StatusSkipped}, "error"},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			ec := makeEvalContext(true)
+			evaluator := staticEvaluator(test.Result)
+
+			_, err := ec.EvaluatePolicy(context.Background(), &evaluator)
+			require.NoError(t, err)
+			require.NotNil(t, ec.Status)
+			assert.Equal(t, test.Expected, ec.Status.GetState())
+		})
 	}
 }

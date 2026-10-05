@@ -17,6 +17,11 @@ package common
 type PredicateResult struct {
 	Satisfied bool
 
+	// Failed marks a predicate that cannot become satisfied without new input,
+	// as opposed to one that is merely waiting. A failed workflow run is Failed;
+	// one that has not finished yet is not.
+	Failed bool
+
 	Description string
 
 	// Describes the values, used as "the $ValuesPhrase"; must be plural

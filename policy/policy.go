@@ -176,6 +176,7 @@ func (e evaluator) Evaluate(ctx context.Context, prctx pull.Context) (res common
 	default:
 		res.Status = approval.Status
 		res.StatusDescription = approval.StatusDescription
+		res.Failed = approval.Failed
 	}
 	return
 }

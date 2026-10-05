@@ -66,8 +66,12 @@ type Result struct {
 	StatusDescription string
 	Status            EvaluationStatus
 	Error             error
-	PredicateResults  []*PredicateResult
-	Methods           *Methods
+
+	// Failed marks a pending result that is pending because something failed
+	// rather than because it has not happened yet.
+	Failed           bool
+	PredicateResults []*PredicateResult
+	Methods          *Methods
 
 	// Requires contains the result of evaluating the rule's
 	// requirements.

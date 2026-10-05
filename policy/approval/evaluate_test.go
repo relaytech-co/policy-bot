@@ -251,3 +251,66 @@ func TestOrRequirement(t *testing.T) {
 	assert.NoError(t, result.Error)
 	assert.Equal(t, common.StatusApproved, result.Status)
 }
+
+func pendingRequirement(failed bool) common.Evaluator {
+	return &mockRequirement{
+		result: &common.Result{
+			Status: common.StatusPending,
+			Failed: failed,
+		},
+	}
+}
+
+func TestRequirementFailedPropagation(t *testing.T) {
+	ctx := context.Background()
+	prctx := &pulltest.Context{}
+
+	t.Run("andFailsOnAnyFailedRule", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			pendingRequirement(false),
+			pendingRequirement(true),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, common.StatusPending, result.Status)
+		assert.True(t, result.Failed)
+	})
+
+	t.Run("andDoesNotFailWhenOnlyWaiting", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			pendingRequirement(false),
+			pendingRequirement(false),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, common.StatusPending, result.Status)
+		assert.False(t, result.Failed)
+	})
+
+	t.Run("orDoesNotFailWhileOneRuleCouldStillApprove", func(t *testing.T) {
+		or := &OrRequirement{requirements: []common.Evaluator{
+			pendingRequirement(true),
+			pendingRequirement(false),
+		}}
+		result := or.Evaluate(ctx, prctx)
+		assert.Equal(t, common.StatusPending, result.Status)
+		assert.False(t, result.Failed)
+	})
+
+	t.Run("orFailsWhenEveryRuleFailed", func(t *testing.T) {
+		or := &OrRequirement{requirements: []common.Evaluator{
+			pendingRequirement(true),
+			pendingRequirement(true),
+		}}
+		result := or.Evaluate(ctx, prctx)
+		assert.Equal(t, common.StatusPending, result.Status)
+		assert.True(t, result.Failed)
+	})
+
+	t.Run("approvedIsNeverFailed", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			&mockRequirement{result: &common.Result{Status: common.StatusApproved}},
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, common.StatusApproved, result.Status)
+		assert.False(t, result.Failed)
+	})
+}

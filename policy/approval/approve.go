@@ -124,10 +124,20 @@ func (r *Rule) Evaluate(ctx context.Context, prctx pull.Context) (res common.Res
 		res.Status = common.StatusApproved
 	} else {
 		res.Status = common.StatusPending
+		res.Failed = anyConditionFailed(result.Conditions)
 		res.ReviewRequestRule = r.getReviewRequestRule()
 	}
 
 	return
+}
+
+func anyConditionFailed(conditions []*common.PredicateResult) bool {
+	for _, c := range conditions {
+		if c.Failed {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Rule) getReviewRequestRule() *common.ReviewRequestRule {
