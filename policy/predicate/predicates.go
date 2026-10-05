@@ -160,3 +160,11 @@ func (p *Predicates) Predicates() []Predicate {
 
 	return ps
 }
+
+// WorkflowPaths returns the workflow file paths these predicates observe.
+func (p *Predicates) WorkflowPaths() []string {
+	if p.HasWorkflowResult == nil {
+		return nil
+	}
+	return p.HasWorkflowResult.Workflows
+}

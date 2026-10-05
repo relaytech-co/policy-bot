@@ -48,9 +48,15 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 	ownerName := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
 	commitSHA := event.GetWorkflowRun().GetHeadSHA()
+	workflowPath := event.GetWorkflowRun().GetPath()
 	installationID := githubapp.GetInstallationIDFromEvent(&event)
 
 	ctx, logger := githubapp.PrepareRepoContext(ctx, installationID, repo)
+
+	client, err := h.NewInstallationClient(installationID)
+	if err != nil {
+		return errors.Wrap(err, "failed to create installation client")
+	}
 
 	evaluationFailures := 0
 	for _, pr := range event.GetWorkflowRun().PullRequests {
@@ -63,6 +69,13 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 		prBaseRepo := pr.GetBase().GetRepo()
 		if prBaseRepo.GetID() != repoID {
 			logger.Debug().Msgf("Skipping pull request '%d' from different repository '%s'", pr.GetNumber(), prBaseRepo.GetURL())
+			continue
+		}
+
+		// Only this workflow's own result reaches the policy through a workflow_run event,
+		// so skip the evaluation when no rule names it. check_run and status events cover the rest.
+		if h.ignoresWorkflow(ctx, client, ownerName, repoName, pr.GetBase().GetRef(), workflowPath) {
+			logger.Debug().Msgf("Skipping pull request '%d': no rule references workflow '%s'", pr.GetNumber(), workflowPath)
 			continue
 		}
 
@@ -81,4 +94,20 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 	}
 
 	return errors.Errorf("failed to evaluate %d pull requests", evaluationFailures)
+}
+
+// ignoresWorkflow reports whether the policy on baseRef observes no result from workflowPath.
+// A config that is missing, unreadable or invalid is never ignored, so the evaluation still runs and reports it.
+func (h *WorkflowRun) ignoresWorkflow(ctx context.Context, client *github.Client, owner, repo, baseRef, workflowPath string) bool {
+	if workflowPath == "" || baseRef == "" {
+		return false
+	}
+
+	fetched := h.ConfigFetcher.ConfigForRepositoryBranch(ctx, client, owner, repo, baseRef)
+	if fetched.Config == nil || fetched.LoadError != nil || fetched.ParseError != nil {
+		return false
+	}
+
+	_, ok := fetched.Config.ReferencedWorkflows()[workflowPath]
+	return !ok
 }
