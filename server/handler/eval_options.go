@@ -16,6 +16,7 @@ package handler
 
 import (
 	"encoding"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -43,6 +44,13 @@ type PullEvaluationOptions struct {
 	// StatusCheckContext will be used to create the status context. It will be used in the following
 	// pattern: <StatusCheckContext>: <Base Branch Name>
 	StatusCheckContext string `yaml:"status_check_context"`
+
+	// IncludeBranchInStatusContext appends the base branch to the status context. It defaults to
+	// true. Setting it false gives one context for every base branch, which is what a repository
+	// with stacked pull requests needs, since a stack's branches each have a different base and so
+	// no single branch-qualified context can be required of all of them. The cost is that a status
+	// no longer records which branch it was evaluated against: see PostInsecureStatusChecks.
+	IncludeBranchInStatusContext *bool `yaml:"include_branch_in_status_context"`
 
 	// ExpandRequiredReviewers enables a UI feature where the details page
 	// shows a list of the users who can approve each rule. Enabling this
@@ -83,6 +91,20 @@ type PullEvaluationOptions struct {
 	Deprecated_DoNotLoadCommitPushedDate bool `yaml:"do_not_load_commit_pushed_date"`
 }
 
+// StatusContextFor returns the status context to post for a pull request with this base branch.
+func (p *PullEvaluationOptions) StatusContextFor(baseBranch string) string {
+	if p.IncludeBranchInStatusContext != nil && !*p.IncludeBranchInStatusContext {
+		return p.StatusCheckContext
+	}
+	return fmt.Sprintf("%s: %s", p.StatusCheckContext, baseBranch)
+}
+
+// PostsSeparateInsecureStatus reports whether a second, branchless status is worth posting.
+// It is redundant when the branch is already left out of every context.
+func (p *PullEvaluationOptions) PostsSeparateInsecureStatus() bool {
+	return p.PostInsecureStatusChecks && p.StatusContextFor("") != p.StatusCheckContext
+}
+
 func (p *PullEvaluationOptions) fillDefaults() {
 	if p.PolicyPath == "" {
 		p.PolicyPath = DefaultPolicyPath
@@ -107,6 +129,10 @@ func (p *PullEvaluationOptions) fillDefaults() {
 	if p.StatusCheckContext == "" {
 		p.StatusCheckContext = DefaultStatusCheckContext
 	}
+	if p.IncludeBranchInStatusContext == nil {
+		includeBranch := true
+		p.IncludeBranchInStatusContext = &includeBranch
+	}
 }
 
 func (p *PullEvaluationOptions) SetValuesFromEnv(prefix string) {
@@ -114,6 +140,7 @@ func (p *PullEvaluationOptions) SetValuesFromEnv(prefix string) {
 	setStringPtrFromEnv("SHARED_REPOSITORY", prefix, &p.SharedRepository)
 	setStringPtrFromEnv("SHARED_POLICY_PATH", prefix, &p.SharedPolicyPath)
 	setStringFromEnv("STATUS_CHECK_CONTEXT", prefix, &p.StatusCheckContext)
+	setBoolPtrFromEnv("INCLUDE_BRANCH_IN_STATUS_CONTEXT", prefix, &p.IncludeBranchInStatusContext)
 	setBoolFromEnv("FORCE_SHARED_POLICY", prefix, &p.ForceSharedPolicy)
 	setBoolFromEnv("EXPAND_REQUIRED_REVIEWERS", prefix, &p.ExpandRequiredReviewers)
 	setBoolFromEnv("STRICT_REVIEW_DISMISSAL", prefix, &p.StrictReviewDismissal)

@@ -47,6 +47,12 @@ func TestPullEvaluationOptions_SetValuesFromEnv(t *testing.T) {
 				opts.SharedPolicyPath = new("configs/policy-bot/policy.yml")
 			},
 		},
+		"IncludeBranchInStatusContext": {
+			Env: map[string]string{"PEO_INCLUDE_BRANCH_IN_STATUS_CONTEXT": "false"},
+			SetExpected: func(opts *PullEvaluationOptions) {
+				opts.IncludeBranchInStatusContext = new(false)
+			},
+		},
 		"StatusCheckContext": {
 			Env: map[string]string{"PEO_STATUS_CHECK_CONTEXT": "custom-policy-bot"},
 			SetExpected: func(opts *PullEvaluationOptions) {
@@ -406,14 +412,57 @@ func TestPullEvaluationOptions_SetValuesFromEnv(t *testing.T) {
 			// Explicitly set defaults to avoid calling `fillDefaults` on both
 			// the input and the output and hiding potential bugs
 			expected := PullEvaluationOptions{
-				PolicyPath:         DefaultPolicyPath,
-				SharedRepository:   new(DefaultSharedRepository),
-				SharedPolicyPath:   new(DefaultSharedPolicyPath),
-				StatusCheckContext: DefaultStatusCheckContext,
+				PolicyPath:                   DefaultPolicyPath,
+				SharedRepository:             new(DefaultSharedRepository),
+				SharedPolicyPath:             new(DefaultSharedPolicyPath),
+				StatusCheckContext:           DefaultStatusCheckContext,
+				IncludeBranchInStatusContext: new(true),
 			}
 			test.SetExpected(&expected)
 
 			assert.Equal(t, expected, opts, "incorrect options set from environment")
+		})
+	}
+}
+
+func TestStatusContextFor(t *testing.T) {
+	tests := map[string]struct {
+		IncludeBranch *bool
+		Insecure      bool
+
+		Expected         string
+		ExpectedSeparate bool
+	}{
+		"defaultIncludesBranch": {
+			Expected: "policy-bot: main",
+		},
+		"branchExcluded": {
+			IncludeBranch: new(false),
+			Expected:      "policy-bot",
+		},
+		"insecureIsSeparateWhileBranchIsIncluded": {
+			Insecure:         true,
+			Expected:         "policy-bot: main",
+			ExpectedSeparate: true,
+		},
+		"insecureIsRedundantOnceBranchIsExcluded": {
+			IncludeBranch:    new(false),
+			Insecure:         true,
+			Expected:         "policy-bot",
+			ExpectedSeparate: false,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			opts := PullEvaluationOptions{
+				StatusCheckContext:           "policy-bot",
+				IncludeBranchInStatusContext: test.IncludeBranch,
+				PostInsecureStatusChecks:     test.Insecure,
+			}
+
+			assert.Equal(t, test.Expected, opts.StatusContextFor("main"))
+			assert.Equal(t, test.ExpectedSeparate, opts.PostsSeparateInsecureStatus())
 		})
 	}
 }

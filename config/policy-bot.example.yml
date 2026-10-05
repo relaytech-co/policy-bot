@@ -123,6 +123,12 @@ sessions:
 #   # POLICYBOT_OPTIONS_STATUS_CHECK_CONTEXT environment variable.
 #   status_check_context: policy-bot
 #
+#   # Append ": <base branch>" to the status context. Defaults to true. Set it false for
+#   # one stable context across every base branch, which is what a repository with stacked
+#   # pull requests needs. Can also be set by the
+#   # POLICYBOT_OPTIONS_INCLUDE_BRANCH_IN_STATUS_CONTEXT environment variable.
+#   include_branch_in_status_context: true
+#
 #   # If true, expand teams, organizations, and permissions in the detils UI to
 #   # a list of users. This option has security implications; see the README.
 #   # Can also be set by the POLICYBOT_OPTIONS_EXPAND_REQUIRED_REVIEWERS
