@@ -53,12 +53,13 @@ logging:
 #   max_size: "50MB"
 
 # Options for webhook processing workers. Events are dropped if the queue is
-# full. The defaults are shown below.
+# full. The upstream defaults are workers 10, queue_size 100, github_timeout 10s.
 #
-# workers:
-#   workers: 10
-#   queue_size: 100
-#   github_timeout: 10s
+# relaycode bursts well past a queue of 100: 251 workflow_run events were dropped inside
+# one hour on 2026-10-05. A dropped delivery is never retried, so it strands the pull
+# request on a pending required status.
+workers:
+  queue_size: 1000
 
 # Options for connecting to GitHub
 github:
