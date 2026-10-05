@@ -23,6 +23,7 @@ import (
 	"github.com/palantir/policy-bot/policy/common"
 	"github.com/palantir/policy-bot/pull"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 )
 
 type PullRequest struct {
@@ -50,6 +51,9 @@ func (h *PullRequest) Handle(ctx context.Context, eventType, deliveryID string, 
 		t = common.TriggerCommit
 	case "edited":
 		t = common.TriggerPullRequest
+		if event.GetChanges().GetBase() != nil {
+			h.invalidateStatus(ctx, installationID, event.GetPullRequest())
+		}
 	case "labeled", "unlabeled":
 		t = common.TriggerLabel
 	default:
@@ -62,4 +66,33 @@ func (h *PullRequest) Handle(ctx context.Context, eventType, deliveryID string, 
 		Number: event.GetPullRequest().GetNumber(),
 		Value:  event.GetPullRequest(),
 	})
+}
+
+// invalidateStatus marks the pull request pending against its new base branch, before the
+// re-evaluation that the retarget triggers. Without it a status approved against the old base
+// stays green on the head commit for as long as that evaluation takes, which is long enough to
+// merge through. It only matters when the context carries no branch, since otherwise the new
+// base has a context of its own that has never been posted.
+func (h *PullRequest) invalidateStatus(ctx context.Context, installationID int64, pr *github.PullRequest) {
+	logger := zerolog.Ctx(ctx)
+
+	client, err := h.NewInstallationClient(installationID)
+	if err != nil {
+		logger.Err(err).Msg("Failed to create client to invalidate status after base change")
+		return
+	}
+
+	state := "pending"
+	message := "Re-evaluating against the new base branch"
+	status := github.RepoStatus{
+		Context:     new(h.PullOpts.StatusContextFor(pr.GetBase().GetRef())),
+		State:       &state,
+		Description: &message,
+	}
+
+	owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	repo := pr.GetBase().GetRepo().GetName()
+	if err := PostStatus(ctx, client, owner, repo, pr.GetHead().GetSHA(), status); err != nil {
+		logger.Err(err).Msg("Failed to invalidate status after base change")
+	}
 }
