@@ -75,11 +75,11 @@ func (b *Base) NewEvalContext(ctx context.Context, installationID int64, loc pul
 		return nil, err
 	}
 
-	baseBranch, _ := prctx.Branches()
+	baseBranch, headBranch := prctx.Branches()
 	owner := prctx.RepositoryOwner()
 	repository := prctx.RepositoryName()
 
-	fetchedConfig := b.ConfigFetcher.ConfigForRepositoryBranch(ctx, client, owner, repository, baseBranch)
+	fetchedConfig := b.ConfigFetcher.ConfigForRepositoryBranch(ctx, client, owner, repository, b.PullOpts.PolicyBranch(baseBranch, headBranch))
 
 	return &EvalContext{
 		Client:   client,

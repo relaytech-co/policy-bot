@@ -53,6 +53,12 @@ func TestPullEvaluationOptions_SetValuesFromEnv(t *testing.T) {
 				opts.IncludeBranchInStatusContext = new(false)
 			},
 		},
+		"PolicyFromDefaultBranchHeadPrefix": {
+			Env: map[string]string{"PEO_POLICY_FROM_DEFAULT_BRANCH_HEAD_PREFIX": "gtmq_"},
+			SetExpected: func(opts *PullEvaluationOptions) {
+				opts.PolicyFromDefaultBranchHeadPrefix = "gtmq_"
+			},
+		},
 		"StatusCheckContext": {
 			Env: map[string]string{"PEO_STATUS_CHECK_CONTEXT": "custom-policy-bot"},
 			SetExpected: func(opts *PullEvaluationOptions) {
@@ -463,6 +469,36 @@ func TestStatusContextFor(t *testing.T) {
 
 			assert.Equal(t, test.Expected, opts.StatusContextFor("main"))
 			assert.Equal(t, test.ExpectedSeparate, opts.PostsSeparateInsecureStatus())
+		})
+	}
+}
+
+func TestPolicyBranch(t *testing.T) {
+	tests := map[string]struct {
+		Prefix   string
+		Head     string
+		Expected string
+	}{
+		"baseBranchByDefault": {
+			Head:     "gtmq_spec_1",
+			Expected: "gtmq_base",
+		},
+		"defaultBranchForAMatchingHead": {
+			Prefix:   "gtmq_",
+			Head:     "gtmq_spec_1",
+			Expected: "",
+		},
+		"baseBranchForAnyOtherHead": {
+			Prefix:   "gtmq_",
+			Head:     "feature",
+			Expected: "gtmq_base",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			opts := PullEvaluationOptions{PolicyFromDefaultBranchHeadPrefix: test.Prefix}
+			assert.Equal(t, test.Expected, opts.PolicyBranch("gtmq_base", test.Head))
 		})
 	}
 }

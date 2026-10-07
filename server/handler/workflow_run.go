@@ -74,7 +74,7 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 
 		// Only this workflow's own result reaches the policy through a workflow_run event,
 		// so skip the evaluation when no rule names it. check_run and status events cover the rest.
-		if h.ignoresWorkflow(ctx, client, ownerName, repoName, pr.GetBase().GetRef(), workflowPath) {
+		if h.ignoresWorkflow(ctx, client, ownerName, repoName, h.PullOpts.PolicyBranch(pr.GetBase().GetRef(), pr.GetHead().GetRef()), workflowPath) {
 			logger.Debug().Msgf("Skipping pull request '%d': no rule references workflow '%s'", pr.GetNumber(), workflowPath)
 			continue
 		}
@@ -96,10 +96,10 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 	return errors.Errorf("failed to evaluate %d pull requests", evaluationFailures)
 }
 
-// ignoresWorkflow reports whether the policy on baseRef observes no result from workflowPath.
+// ignoresWorkflow reports whether the policy on baseRef, or the default branch when empty, observes no result from workflowPath.
 // A config that is missing, unreadable or invalid is never ignored, so the evaluation still runs and reports it.
 func (h *WorkflowRun) ignoresWorkflow(ctx context.Context, client *github.Client, owner, repo, baseRef, workflowPath string) bool {
-	if workflowPath == "" || baseRef == "" {
+	if workflowPath == "" {
 		return false
 	}
 

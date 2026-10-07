@@ -129,6 +129,11 @@ sessions:
 #   # POLICYBOT_OPTIONS_INCLUDE_BRANCH_IN_STATUS_CONTEXT environment variable.
 #   include_branch_in_status_context: true
 #
+#   # Read the policy from the default branch, not the base branch, for a pull request whose
+#   # head branch starts with this prefix, such as a merge queue's speculative pull requests.
+#   # Can also be set by the POLICYBOT_OPTIONS_POLICY_FROM_DEFAULT_BRANCH_HEAD_PREFIX environment variable.
+#   policy_from_default_branch_head_prefix: ""
+#
 #   # If true, expand teams, organizations, and permissions in the detils UI to
 #   # a list of users. This option has security implications; see the README.
 #   # Can also be set by the POLICYBOT_OPTIONS_EXPAND_REQUIRED_REVIEWERS
