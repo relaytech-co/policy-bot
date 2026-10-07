@@ -52,6 +52,10 @@ type PullEvaluationOptions struct {
 	// no longer records which branch it was evaluated against: see PostInsecureStatusChecks.
 	IncludeBranchInStatusContext *bool `yaml:"include_branch_in_status_context"`
 
+	// PolicyFromDefaultBranchHeadPrefix reads the policy from the default branch for a pull request whose head branch starts with it.
+	// Merge queue pull requests are based on each other's branches, which the queue deletes as it merges them.
+	PolicyFromDefaultBranchHeadPrefix string `yaml:"policy_from_default_branch_head_prefix"`
+
 	// ExpandRequiredReviewers enables a UI feature where the details page
 	// shows a list of the users who can approve each rule. Enabling this
 	// feature can leak information about team membership and permissions that
@@ -99,6 +103,14 @@ func (p *PullEvaluationOptions) StatusContextFor(baseBranch string) string {
 	return fmt.Sprintf("%s: %s", p.StatusCheckContext, baseBranch)
 }
 
+// PolicyBranch returns the branch to read a pull request's policy from, where "" is the repository's default branch.
+func (p *PullEvaluationOptions) PolicyBranch(baseBranch, headBranch string) string {
+	if p.PolicyFromDefaultBranchHeadPrefix != "" && strings.HasPrefix(headBranch, p.PolicyFromDefaultBranchHeadPrefix) {
+		return ""
+	}
+	return baseBranch
+}
+
 // PostsSeparateInsecureStatus reports whether a second, branchless status is worth posting.
 // It is redundant when the branch is already left out of every context.
 func (p *PullEvaluationOptions) PostsSeparateInsecureStatus() bool {
@@ -141,6 +153,7 @@ func (p *PullEvaluationOptions) SetValuesFromEnv(prefix string) {
 	setStringPtrFromEnv("SHARED_POLICY_PATH", prefix, &p.SharedPolicyPath)
 	setStringFromEnv("STATUS_CHECK_CONTEXT", prefix, &p.StatusCheckContext)
 	setBoolPtrFromEnv("INCLUDE_BRANCH_IN_STATUS_CONTEXT", prefix, &p.IncludeBranchInStatusContext)
+	setStringFromEnv("POLICY_FROM_DEFAULT_BRANCH_HEAD_PREFIX", prefix, &p.PolicyFromDefaultBranchHeadPrefix)
 	setBoolFromEnv("FORCE_SHARED_POLICY", prefix, &p.ForceSharedPolicy)
 	setBoolFromEnv("EXPAND_REQUIRED_REVIEWERS", prefix, &p.ExpandRequiredReviewers)
 	setBoolFromEnv("STRICT_REVIEW_DISMISSAL", prefix, &p.StrictReviewDismissal)
