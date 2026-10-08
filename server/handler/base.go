@@ -109,6 +109,18 @@ func (b *Base) NewEvalContext(ctx context.Context, installationID int64, loc pul
 	}, nil
 }
 
+// EvaluateWithWorkflowRun evaluates a pull request knowing the result of run, rather than relying on the runs API to have caught up with it.
+func (b *Base) EvaluateWithWorkflowRun(ctx context.Context, installationID int64, trigger common.Trigger, loc pull.Locator, run *github.WorkflowRun) error {
+	evalCtx, err := b.NewEvalContext(ctx, installationID, loc)
+	if err != nil {
+		return errors.Wrap(err, "failed to create evaluation context")
+	}
+	if ghc, ok := evalCtx.PullContext.(*pull.GitHubContext); ok {
+		ghc.AddWorkflowRun(run)
+	}
+	return evalCtx.Evaluate(ctx, trigger)
+}
+
 func (b *Base) Evaluate(ctx context.Context, installationID int64, trigger common.Trigger, loc pull.Locator) error {
 	evalCtx, err := b.NewEvalContext(ctx, installationID, loc)
 	if err != nil {

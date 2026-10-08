@@ -80,12 +80,12 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 			continue
 		}
 
-		if err := h.Evaluate(ctx, installationID, common.TriggerStatus, pull.Locator{
+		if err := h.EvaluateWithWorkflowRun(ctx, installationID, common.TriggerStatus, pull.Locator{
 			Owner:  ownerName,
 			Repo:   repoName,
 			Number: pr.GetNumber(),
 			Value:  pr,
-		}); err != nil {
+		}, event.GetWorkflowRun()); err != nil {
 			evaluationFailures = append(evaluationFailures, err)
 			logger.Error().Err(err).Msgf("Failed to evaluate pull request '%d' for SHA '%s'", pr.GetNumber(), commitSHA)
 		}

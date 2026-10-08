@@ -796,3 +796,44 @@ func (c *MockGlobalCache) GetPushedAt(repoID int64, sha string) (time.Time, bool
 func (c *MockGlobalCache) SetPushedAt(repoID int64, sha string, t time.Time) {
 	c.PushedAt[fmt.Sprintf("%d:%s", repoID, sha)] = t
 }
+
+func TestLatestWorkflowRunsWithKnownRun(t *testing.T) {
+	rp := &ResponsePlayer{}
+	rp.AddRule(
+		ExactPathMatcher("/repos/testorg/testrepo/actions/runs"),
+		"testdata/responses/pull_no_workflow_runs.yml",
+	)
+
+	ctx := makeContext(t, rp, nil, nil)
+	ghc := ctx.(*GitHubContext)
+
+	// The API has not listed the run yet, but the event said it finished
+	ghc.AddWorkflowRun(&github.WorkflowRun{
+		ID: github.Ptr(int64(7)), HeadSHA: github.Ptr(ghc.HeadSHA()), Path: github.Ptr(".github/workflows/d.yml"),
+		Event: github.Ptr("pull_request"), Status: github.Ptr("completed"), Conclusion: github.Ptr("success"),
+	})
+	// A run for another commit is not this pull request's
+	ghc.AddWorkflowRun(&github.WorkflowRun{
+		ID: github.Ptr(int64(8)), HeadSHA: github.Ptr("other"), Path: github.Ptr(".github/workflows/e.yml"),
+		Event: github.Ptr("pull_request"), Status: github.Ptr("completed"), Conclusion: github.Ptr("success"),
+	})
+
+	runs, err := ghc.LatestWorkflowRuns()
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{".github/workflows/d.yml": {"success"}}, runs)
+}
+
+func TestMergeWorkflowRuns(t *testing.T) {
+	run := func(id int64, status string) *github.WorkflowRun {
+		return &github.WorkflowRun{ID: github.Ptr(id), Status: github.Ptr(status)}
+	}
+	listed := []*github.WorkflowRun{run(1, "in_progress"), run(2, "completed")}
+	known := []*github.WorkflowRun{run(1, "completed"), run(3, "completed")}
+
+	merged := mergeWorkflowRuns(listed, known)
+
+	require.Len(t, merged, 3)
+	assert.Same(t, known[0], merged[0], "the known run replaces the stale listed one")
+	assert.Same(t, listed[1], merged[1])
+	assert.Same(t, known[1], merged[2], "a known run the listing missed is added")
+}

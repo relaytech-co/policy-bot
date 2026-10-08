@@ -145,6 +145,7 @@ type GitHubContext struct {
 	labels                     []string
 	pushedAt                   map[string]time.Time
 	workflowRuns               map[string][]string
+	knownWorkflowRuns          []*github.WorkflowRun
 	repositoryCustomProperties map[string]CustomProperty
 }
 
@@ -891,35 +892,13 @@ func (ghc *GitHubContext) LatestWorkflowRuns() (map[string][]string, error) {
 	// conclusions of `success`, here this would mean that both the
 	// `pull_request` and `push` events would have to pass, if triggered, for
 	// the workflow to be considered successful.
-	runsWithDate := make(map[string]map[string]*github.WorkflowRun)
+	var listed []*github.WorkflowRun
 	for {
 		runs, resp, err := ghc.client.Actions.ListRepositoryWorkflowRuns(ghc.ctx, ghc.owner, ghc.repo, opt)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get workflow runs for page %d", opt.Page)
 		}
-
-		for _, run := range runs.WorkflowRuns {
-			if run.GetStatus() != "completed" {
-				continue
-			}
-
-			eventName := run.GetEvent()
-
-			previousRuns := runsWithDate[*run.Path]
-			if previousRuns == nil {
-				previousRuns = make(map[string]*github.WorkflowRun)
-				runsWithDate[*run.Path] = previousRuns
-			}
-
-			previousRun := previousRuns[eventName]
-
-			// This is an older run than one we've already saw, so ignore it.
-			if previousRun != nil && run.GetUpdatedAt().Before(previousRun.GetUpdatedAt().Time) {
-				continue
-			}
-
-			previousRuns[eventName] = run
-		}
+		listed = append(listed, runs.WorkflowRuns...)
 
 		if resp.NextPage == 0 {
 			break
@@ -927,13 +906,75 @@ func (ghc *GitHubContext) LatestWorkflowRuns() (map[string][]string, error) {
 		opt.Page = resp.NextPage
 	}
 
-	ghc.workflowRuns = make(map[string][]string, len(runsWithDate))
-	for path, eventRuns := range runsWithDate {
-		for _, run := range eventRuns {
-			ghc.workflowRuns[path] = append(ghc.workflowRuns[path], run.GetConclusion())
+	ghc.workflowRuns = latestConclusions(mergeWorkflowRuns(listed, ghc.knownWorkflowRuns))
+	return ghc.workflowRuns, nil
+}
+
+// AddWorkflowRun gives the context a run it already knows the result of, such as the one a workflow_run event is for.
+// The runs API can still list that run as in progress for a few seconds after the event, which would otherwise read as no result.
+func (ghc *GitHubContext) AddWorkflowRun(run *github.WorkflowRun) {
+	if run.GetHeadSHA() != ghc.HeadSHA() {
+		return
+	}
+	ghc.knownWorkflowRuns = append(ghc.knownWorkflowRuns, run)
+	ghc.workflowRuns = nil
+}
+
+// mergeWorkflowRuns replaces each listed run with the known run of the same id, and adds known runs the listing missed.
+func mergeWorkflowRuns(listed, known []*github.WorkflowRun) []*github.WorkflowRun {
+	byID := make(map[int64]*github.WorkflowRun, len(known))
+	for _, run := range known {
+		byID[run.GetID()] = run
+	}
+	merged := make([]*github.WorkflowRun, 0, len(listed)+len(known))
+	for _, run := range listed {
+		if k, ok := byID[run.GetID()]; ok {
+			run = k
+			delete(byID, run.GetID())
+		}
+		merged = append(merged, run)
+	}
+	for _, run := range known {
+		if _, ok := byID[run.GetID()]; ok {
+			merged = append(merged, run)
 		}
 	}
-	return ghc.workflowRuns, nil
+	return merged
+}
+
+// latestConclusions is the conclusion of the newest completed run of each workflow, per event that triggered it.
+func latestConclusions(runs []*github.WorkflowRun) map[string][]string {
+	runsWithDate := make(map[string]map[string]*github.WorkflowRun)
+	for _, run := range runs {
+		if run.GetStatus() != "completed" {
+			continue
+		}
+
+		eventName := run.GetEvent()
+
+		previousRuns := runsWithDate[run.GetPath()]
+		if previousRuns == nil {
+			previousRuns = make(map[string]*github.WorkflowRun)
+			runsWithDate[run.GetPath()] = previousRuns
+		}
+
+		previousRun := previousRuns[eventName]
+
+		// This is an older run than one we've already saw, so ignore it.
+		if previousRun != nil && run.GetUpdatedAt().Before(previousRun.GetUpdatedAt().Time) {
+			continue
+		}
+
+		previousRuns[eventName] = run
+	}
+
+	conclusions := make(map[string][]string, len(runsWithDate))
+	for path, eventRuns := range runsWithDate {
+		for _, run := range eventRuns {
+			conclusions[path] = append(conclusions[path], run.GetConclusion())
+		}
+	}
+	return conclusions
 }
 
 func (ghc *GitHubContext) Labels() ([]string, error) {
