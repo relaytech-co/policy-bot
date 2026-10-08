@@ -37,7 +37,7 @@ const (
 	DefaultSweepMaxEvaluations = 10
 
 	// sweepPageSize is how many pull requests one query reads
-	sweepPageSize = 50
+	sweepPageSize = 20
 	// sweepMaxAttempts is how often one head commit is evaluated by the sweep, so a pull request that is pending for good reason is not evaluated every pass
 	sweepMaxAttempts = 3
 	sweepConcurrency = 5
@@ -118,6 +118,7 @@ type SweepPR struct {
 						CreatedAt time.Time
 					}
 				}
+				// Only GitHub Actions suites, app id 15368, to keep the query fast
 				CheckSuites struct {
 					Nodes []struct {
 						Status githubv4.CheckStatusState
@@ -125,7 +126,7 @@ type SweepPR struct {
 							Slug string
 						}
 					}
-				} `graphql:"checkSuites(first: 100)"`
+				} `graphql:"checkSuites(first: 50, filterBy: {appId: 15368})"`
 			}
 		}
 	} `graphql:"commits(last: 1)"`

@@ -76,7 +76,7 @@ func makeSweepPR(number int, updated time.Duration, opts ...prOption) SweepPR {
 					Status githubv4.CheckStatusState
 					App    *struct{ Slug string }
 				}
-			} `graphql:"checkSuites(first: 100)"`
+			} `graphql:"checkSuites(first: 50, filterBy: {appId: 15368})"`
 		}
 	}, 1)
 	pr.Commits.Nodes[0].Commit.Oid = "sha" + string(rune('a'+number%26))
