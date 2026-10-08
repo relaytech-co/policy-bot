@@ -61,6 +61,22 @@ logging:
 workers:
   queue_size: 1000
 
+# Re-evaluate open pull requests whose status looks stuck: missing, error, or pending with
+# no GitHub Actions workflow still running. Webhooks are otherwise the only trigger, so a
+# missed one or a failed evaluation leaves the status as it was until the pull request
+# changes. Off unless repositories is set. Each pass reads the pull requests updated within
+# window, plus one page of older ones, so every open pull request is reached in turn. Every
+# replica sweeps, so the evaluations add up across them. Can also be set by the
+# POLICYBOT_SWEEP_REPOSITORIES (comma separated), POLICYBOT_SWEEP_INTERVAL,
+# POLICYBOT_SWEEP_WINDOW, POLICYBOT_SWEEP_PENDING_AGE and POLICYBOT_SWEEP_MAX_EVALUATIONS
+# environment variables.
+# sweep:
+#   repositories: ["owner/repo"]
+#   interval: 2m
+#   window: 2h
+#   pending_age: 1m
+#   max_evaluations: 10
+
 # Options for connecting to GitHub
 github:
   # The URL of the GitHub homepage. Can also be set by the GITHUB_WEB_URL

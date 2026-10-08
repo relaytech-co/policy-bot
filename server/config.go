@@ -44,6 +44,7 @@ type Config struct {
 	Datadog    datadog.Config                `yaml:"datadog"`
 	Prometheus prometheus.Config             `yaml:"prometheus"`
 	Workers    WorkerConfig                  `yaml:"workers"`
+	Sweep      handler.SweepConfig           `yaml:"sweep"`
 }
 
 type LoggingConfig struct {
@@ -99,6 +100,7 @@ func ParseConfig(bytes []byte) (*Config, error) {
 	c.Server.SetValuesFromEnv(envPrefix)
 	c.Logging.SetValuesFromEnv(envPrefix)
 	c.Github.SetValuesFromEnv("")
+	c.Sweep.SetValuesFromEnv(envPrefix + "SWEEP_")
 
 	if v, ok := os.LookupEnv(envPrefix + "SESSIONS_KEY"); ok {
 		c.Sessions.Key = v

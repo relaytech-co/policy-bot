@@ -53,8 +53,9 @@ const (
 )
 
 type Server struct {
-	config *Config
-	base   *baseapp.Server
+	config  *Config
+	base    *baseapp.Server
+	sweeper *handler.Sweeper
 }
 
 // New instantiates a new Server.
@@ -282,6 +283,11 @@ func New(c *Config) (*Server, error) {
 	return &Server{
 		config: c,
 		base:   base,
+		sweeper: &handler.Sweeper{
+			Base:   basePolicyHandler,
+			Config: c.Sweep,
+			Pager:  handler.GraphQLPullRequestPager(cc),
+		},
 	}, nil
 }
 
@@ -292,5 +298,7 @@ func (s *Server) Start() error {
 			return err
 		}
 	}
+	logger := s.base.Logger()
+	s.sweeper.Start(logger.WithContext(context.Background()))
 	return s.base.Start()
 }
