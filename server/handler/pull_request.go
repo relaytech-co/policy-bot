@@ -43,21 +43,12 @@ func (h *PullRequest) Handle(ctx context.Context, eventType, deliveryID string, 
 	installationID := githubapp.GetInstallationIDFromEvent(&event)
 	ctx, _ = h.PreparePRContext(ctx, installationID, event.GetPullRequest())
 
-	var t common.Trigger
-	switch event.GetAction() {
-	case "opened", "reopened", "ready_for_review":
-		t = common.TriggerCommit | common.TriggerPullRequest
-	case "synchronize":
-		t = common.TriggerCommit
-	case "edited":
-		t = common.TriggerPullRequest
-		if event.GetChanges().GetBase() != nil {
-			h.invalidateStatus(ctx, installationID, event.GetPullRequest())
-		}
-	case "labeled", "unlabeled":
-		t = common.TriggerLabel
-	default:
+	t := pullRequestTrigger(event)
+	if t == common.TriggerStatic {
 		return nil
+	}
+	if event.GetAction() == "edited" && event.GetChanges().GetBase() != nil {
+		h.invalidateStatus(ctx, installationID, event.GetPullRequest())
 	}
 
 	return h.Evaluate(ctx, installationID, t, pull.Locator{
@@ -94,5 +85,25 @@ func (h *PullRequest) invalidateStatus(ctx context.Context, installationID int64
 	repo := pr.GetBase().GetRepo().GetName()
 	if err := PostStatus(ctx, client, owner, repo, pr.GetHead().GetSHA(), status); err != nil {
 		logger.Err(err).Msg("Failed to invalidate status after base change")
+	}
+}
+
+// pullRequestTrigger returns what a pull_request event can have changed, or TriggerStatic when it needs no evaluation.
+// A new base can change the policy and the changed files, so it evaluates everything.
+func pullRequestTrigger(event github.PullRequestEvent) common.Trigger {
+	switch event.GetAction() {
+	case "opened", "reopened", "ready_for_review":
+		return common.TriggerCommit | common.TriggerPullRequest
+	case "synchronize":
+		return common.TriggerCommit
+	case "edited":
+		if event.GetChanges().GetBase() != nil {
+			return common.TriggerAll
+		}
+		return common.TriggerPullRequest
+	case "labeled", "unlabeled":
+		return common.TriggerLabel
+	default:
+		return common.TriggerStatic
 	}
 }
