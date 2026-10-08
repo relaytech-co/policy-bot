@@ -17,6 +17,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/google/go-github/v92/github"
 	"github.com/palantir/go-githubapp/githubapp"
@@ -58,7 +59,7 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 		return errors.Wrap(err, "failed to create installation client")
 	}
 
-	evaluationFailures := 0
+	var evaluationFailures []error
 	for _, pr := range event.GetWorkflowRun().PullRequests {
 		// The `workflow_run` event includes pull requests that contain the SHA
 		// which is being checked. These can be pull requests _from_ our
@@ -85,15 +86,16 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 			Number: pr.GetNumber(),
 			Value:  pr,
 		}); err != nil {
-			evaluationFailures++
+			evaluationFailures = append(evaluationFailures, err)
 			logger.Error().Err(err).Msgf("Failed to evaluate pull request '%d' for SHA '%s'", pr.GetNumber(), commitSHA)
 		}
 	}
-	if evaluationFailures == 0 {
+	if len(evaluationFailures) == 0 {
 		return nil
 	}
 
-	return errors.Errorf("failed to evaluate %d pull requests", evaluationFailures)
+	// Joined rather than counted, so a retry can tell a transient failure from a permanent one
+	return errors.Wrapf(stderrors.Join(evaluationFailures...), "failed to evaluate %d pull requests", len(evaluationFailures))
 }
 
 // ignoresWorkflow reports whether the policy on baseRef, or the default branch when empty, observes no result from workflowPath.

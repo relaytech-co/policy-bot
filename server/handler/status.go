@@ -17,6 +17,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"strings"
 
@@ -129,7 +130,7 @@ func (h *Status) processOthers(ctx context.Context, event github.StatusEvent) er
 	}
 	logger.Debug().Msgf("Status event is for '%s', found %d PRs", event.GetContext(), len(prs))
 
-	evaluationFailures := 0
+	var evaluationFailures []error
 	for _, pr := range prs {
 		if pr.GetState() == "open" {
 			err = h.Evaluate(ctx, installationID, common.TriggerStatus, pull.Locator{
@@ -139,15 +140,16 @@ func (h *Status) processOthers(ctx context.Context, event github.StatusEvent) er
 				Value:  pr,
 			})
 			if err != nil {
-				evaluationFailures++
+				evaluationFailures = append(evaluationFailures, err)
 				logger.Error().Err(err).Msgf("Failed to evaluate pull request '%d' for SHA '%s'", pr.GetNumber(),
 					commitSHA)
 
 			}
 		}
 	}
-	if evaluationFailures == 0 {
+	if len(evaluationFailures) == 0 {
 		return nil
 	}
-	return errors.Errorf("failed to evaluate %d pull requests", evaluationFailures)
+	// Joined rather than counted, so a retry can tell a transient failure from a permanent one
+	return errors.Wrapf(stderrors.Join(evaluationFailures...), "failed to evaluate %d pull requests", len(evaluationFailures))
 }

@@ -189,16 +189,19 @@ func New(c *Config) (*Server, error) {
 		workers = DefaultWebhookWorkers
 	}
 
+	// The retry is shared between handlers, so the cap on events waiting to be retried is across all of them
+	retrying := handler.NewRetrier(handler.DefaultRetryDelays, handler.DefaultMaxPendingRetries)
+
 	dispatcher := githubapp.NewEventDispatcher(
 		[]githubapp.EventHandler{
 			&handler.Installation{Base: basePolicyHandler},
-			&handler.MergeGroup{Base: basePolicyHandler},
-			&handler.PullRequest{Base: basePolicyHandler},
-			&handler.PullRequestReview{Base: basePolicyHandler},
-			&handler.IssueComment{Base: basePolicyHandler},
-			&handler.Status{Base: basePolicyHandler},
-			&handler.CheckRun{Base: basePolicyHandler},
-			&handler.WorkflowRun{Base: basePolicyHandler},
+			retrying(&handler.MergeGroup{Base: basePolicyHandler}),
+			retrying(&handler.PullRequest{Base: basePolicyHandler}),
+			retrying(&handler.PullRequestReview{Base: basePolicyHandler}),
+			retrying(&handler.IssueComment{Base: basePolicyHandler}),
+			retrying(&handler.Status{Base: basePolicyHandler}),
+			retrying(&handler.CheckRun{Base: basePolicyHandler}),
+			retrying(&handler.WorkflowRun{Base: basePolicyHandler}),
 		},
 		c.Github.App.WebhookSecret,
 		githubapp.WithErrorCallback(githubapp.MetricsErrorCallback(base.Registry())),

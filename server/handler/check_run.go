@@ -17,6 +17,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/google/go-github/v92/github"
 	"github.com/palantir/go-githubapp/githubapp"
@@ -52,7 +53,7 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 
 	logger.Debug().Msgf("Check run event is for '%s', found %d PRs", event.GetCheckRun().GetName(), len(event.GetCheckRun().PullRequests))
 
-	evaluationFailures := 0
+	var evaluationFailures []error
 	for _, pr := range event.GetCheckRun().PullRequests {
 		// TODO(bkeyes): I'm assuming PRs in a check run are open at the time
 		// of the event, but I can't find confirmation of that in the GitHub
@@ -77,12 +78,13 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 			Number: pr.GetNumber(),
 			Value:  pr,
 		}); err != nil {
-			evaluationFailures++
+			evaluationFailures = append(evaluationFailures, err)
 			logger.Error().Err(err).Msgf("Failed to evaluate pull request '%d' for SHA '%s'", pr.GetNumber(), commitSHA)
 		}
 	}
-	if evaluationFailures == 0 {
+	if len(evaluationFailures) == 0 {
 		return nil
 	}
-	return errors.Errorf("failed to evaluate %d pull requests", evaluationFailures)
+	// Joined rather than counted, so a retry can tell a transient failure from a permanent one
+	return errors.Wrapf(stderrors.Join(evaluationFailures...), "failed to evaluate %d pull requests", len(evaluationFailures))
 }

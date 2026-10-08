@@ -16,6 +16,7 @@ package handler
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/go-github/v92/github"
 	"github.com/palantir/go-baseapp/baseapp"
@@ -42,10 +43,25 @@ type Base struct {
 	AppName string
 }
 
+// postStatusDelays are the waits before each retry of a status that failed to post on a transient error
+var postStatusDelays = []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}
+
 // PostStatus posts a GitHub commit status with consistent logging.
 func PostStatus(ctx context.Context, client *github.Client, owner, repo, ref string, status github.RepoStatus) error {
 	zerolog.Ctx(ctx).Info().Msgf("Setting %q status on %s to %s: %s", status.GetContext(), ref, status.GetState(), status.GetDescription())
 	_, _, err := client.Repositories.CreateStatus(ctx, owner, repo, ref, status)
+	for _, delay := range postStatusDelays {
+		if !IsTransient(err) {
+			break
+		}
+		zerolog.Ctx(ctx).Warn().Err(err).Msgf("Retrying %q status on %s in %s", status.GetContext(), ref, delay)
+		select {
+		case <-ctx.Done():
+			return errors.WithStack(err)
+		case <-time.After(delay):
+		}
+		_, _, err = client.Repositories.CreateStatus(ctx, owner, repo, ref, status)
+	}
 	return errors.WithStack(err)
 }
 
