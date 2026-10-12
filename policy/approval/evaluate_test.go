@@ -19,7 +19,9 @@ import (
 	"errors"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/palantir/policy-bot/policy/common"
 	"github.com/palantir/policy-bot/policy/predicate"
@@ -312,5 +314,139 @@ func TestRequirementFailedPropagation(t *testing.T) {
 		result := and.Evaluate(ctx, prctx)
 		assert.Equal(t, common.StatusApproved, result.Status)
 		assert.False(t, result.Failed)
+	})
+}
+
+func namedRule(name string, status common.EvaluationStatus, failed bool) common.Evaluator {
+	return &mockRequirement{
+		result: &common.Result{
+			Name:   name,
+			Status: status,
+			Failed: failed,
+		},
+	}
+}
+
+func TestPendingStatusDescription(t *testing.T) {
+	ctx := context.Background()
+	prctx := &pulltest.Context{}
+
+	t.Run("andNamesFailedBeforeWaiting", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("always", common.StatusApproved, false),
+			namedRule("relay_api lint and bazel-checks", common.StatusPending, false),
+			namedRule("lint-terraform", common.StatusSkipped, false),
+			namedRule("check-codegen", common.StatusPending, true),
+			namedRule("dbt CI", common.StatusPending, false),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "Failed: check-codegen · Waiting: relay_api lint and bazel-checks, dbt CI", result.StatusDescription)
+	})
+
+	t.Run("onlyWaiting", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("always", common.StatusApproved, false),
+			namedRule("nelson ci", common.StatusPending, false),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "Waiting: nelson ci", result.StatusDescription)
+	})
+
+	t.Run("onlyFailed", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("Lint Rust Code", common.StatusPending, true),
+			namedRule("dagster CI", common.StatusPending, true),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "Failed: Lint Rust Code, dagster CI", result.StatusDescription)
+	})
+
+	t.Run("nestedAndNamesInnerRules", func(t *testing.T) {
+		// The shape relaycode's generated .policy.yml has: one "and" holding
+		// every rule.
+		inner := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("always", common.StatusApproved, false),
+			namedRule("relay_api lint and bazel-checks", common.StatusPending, false),
+			namedRule("check-codegen", common.StatusPending, true),
+		}}
+		approval := &evaluator{root: &AndRequirement{requirements: []common.Evaluator{inner}}}
+
+		result := approval.Evaluate(ctx, prctx)
+		assert.Equal(t, common.StatusPending, result.Status)
+		assert.True(t, result.Failed)
+		assert.Equal(t, "Failed: check-codegen · Waiting: relay_api lint and bazel-checks", result.StatusDescription)
+	})
+
+	t.Run("nestedOrAndRepeatedRules", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("dbt CI", common.StatusPending, false),
+			&OrRequirement{requirements: []common.Evaluator{
+				namedRule("dbt CI", common.StatusPending, false),
+				namedRule("cube-lint-yaml and cube-validate", common.StatusPending, true),
+			}},
+			// An approved "or" is satisfied, so its pending rules are not named.
+			&OrRequirement{requirements: []common.Evaluator{
+				namedRule("always", common.StatusApproved, false),
+				namedRule("RCP Build & Test", common.StatusPending, false),
+			}},
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "Failed: cube-lint-yaml and cube-validate · Waiting: dbt CI", result.StatusDescription)
+	})
+
+	t.Run("orNamesRules", func(t *testing.T) {
+		or := &OrRequirement{requirements: []common.Evaluator{
+			namedRule("check-codegen", common.StatusPending, true),
+			namedRule("nelson ci", common.StatusPending, false),
+			namedRule("lint-terraform", common.StatusSkipped, false),
+		}}
+		result := or.Evaluate(ctx, prctx)
+		assert.Equal(t, "Failed: check-codegen · Waiting: nelson ci", result.StatusDescription)
+	})
+
+	t.Run("truncatesAt140Characters", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("relay_api lint and bazel-checks", common.StatusPending, false),
+			namedRule("Shipments Core Build & Test", common.StatusPending, false),
+			namedRule("cube-lint-yaml and cube-validate", common.StatusPending, false),
+			namedRule("policy-bot config is generated", common.StatusPending, false),
+			namedRule("check-codegen", common.StatusPending, true),
+			namedRule("RCP Build & Test", common.StatusPending, true),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "Failed: check-codegen, RCP Build & Test · Waiting: relay_api lint and bazel-checks, Shipments Core Build & Test +2 more", result.StatusDescription)
+		assert.LessOrEqual(t, utf8.RuneCountInString(result.StatusDescription), 140)
+	})
+
+	t.Run("fitsExactly140Characters", func(t *testing.T) {
+		// "Waiting: " is 9 characters, so a 131 character name fills the
+		// description without needing "+N more".
+		name := strings.Repeat("x", 131)
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule(name, common.StatusPending, false),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "Waiting: "+name, result.StatusDescription)
+	})
+
+	t.Run("fallsBackToCountWhenNoNameFits", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("always", common.StatusApproved, false),
+			namedRule(strings.Repeat("x", 132), common.StatusPending, false),
+		}}
+		result := and.Evaluate(ctx, prctx)
+		assert.Equal(t, "1/2 rules approved", result.StatusDescription)
+	})
+
+	t.Run("approvedAndSkippedDescriptionsUnchanged", func(t *testing.T) {
+		and := &AndRequirement{requirements: []common.Evaluator{
+			namedRule("always", common.StatusApproved, false),
+		}}
+		assert.Equal(t, "All rules are approved", and.Evaluate(ctx, prctx).StatusDescription)
+
+		and = &AndRequirement{requirements: []common.Evaluator{
+			namedRule("lint-terraform", common.StatusSkipped, false),
+		}}
+		assert.Equal(t, "All of the rules are skipped", and.Evaluate(ctx, prctx).StatusDescription)
 	})
 }

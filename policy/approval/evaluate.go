@@ -17,6 +17,8 @@ package approval
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/palantir/policy-bot/policy/common"
 	"github.com/palantir/policy-bot/pull"
@@ -126,7 +128,7 @@ func (r *OrRequirement) Evaluate(ctx context.Context, prctx pull.Context) common
 		err = nil
 	case pending > 0:
 		status = common.StatusPending
-		description = "None of the rules are satisfied"
+		description = pendingDescription(children, "None of the rules are satisfied")
 		err = nil
 	}
 
@@ -191,7 +193,7 @@ func (r *AndRequirement) Evaluate(ctx context.Context, prctx pull.Context) commo
 		description = fmt.Sprintf("All rules are approved")
 	case pending > 0:
 		status = common.StatusPending
-		description = fmt.Sprintf("%d/%d rules approved", approved, approved+pending)
+		description = pendingDescription(children, fmt.Sprintf("%d/%d rules approved", approved, approved+pending))
 	}
 
 	return common.Result{
@@ -203,4 +205,76 @@ func (r *AndRequirement) Evaluate(ctx context.Context, prctx pull.Context) commo
 		Error:             err,
 		Children:          children,
 	}
+}
+
+// maxStatusDescription is the longest description GitHub accepts on a commit
+// status.
+const maxStatusDescription = 140
+
+// pendingDescription names the rules under children that are still pending,
+// failed ones first, for example "Failed: check-codegen · Waiting: dbt CI".
+// Nested and/or results are walked down to their rules, so that a policy
+// with a single top-level "and" still names its rules. Rules that do not fit
+// in a commit status description are counted as "+N more". It returns
+// fallback when no rule name fits.
+func pendingDescription(children []*common.Result, fallback string) string {
+	var failed, waiting []string
+	collectPendingRules(children, make(map[string]bool), &failed, &waiting)
+
+	if desc := formatPendingRules(failed, waiting, maxStatusDescription); desc != "" {
+		return desc
+	}
+	return fallback
+}
+
+// collectPendingRules appends the name of each pending rule under results to
+// failed or waiting, in policy order. A rule referenced from more than one
+// place in the policy is listed once.
+func collectPendingRules(results []*common.Result, seen map[string]bool, failed, waiting *[]string) {
+	for _, r := range results {
+		if r.Error != nil || r.Status != common.StatusPending {
+			continue
+		}
+		if len(r.Children) > 0 {
+			collectPendingRules(r.Children, seen, failed, waiting)
+			continue
+		}
+		if r.Name == "" || seen[r.Name] {
+			continue
+		}
+		seen[r.Name] = true
+
+		if r.Failed {
+			*failed = append(*failed, r.Name)
+		} else {
+			*waiting = append(*waiting, r.Name)
+		}
+	}
+}
+
+// formatPendingRules lists as many rules as fit in limit characters, dropping
+// waiting rules before failed ones, and returns "" if not even one fits.
+func formatPendingRules(failed, waiting []string, limit int) string {
+	total := len(failed) + len(waiting)
+	for shown := total; shown > 0; shown-- {
+		f := failed[:min(shown, len(failed))]
+		w := waiting[:shown-len(f)]
+
+		var sections []string
+		if len(f) > 0 {
+			sections = append(sections, "Failed: "+strings.Join(f, ", "))
+		}
+		if len(w) > 0 {
+			sections = append(sections, "Waiting: "+strings.Join(w, ", "))
+		}
+
+		desc := strings.Join(sections, " · ")
+		if shown < total {
+			desc += fmt.Sprintf(" +%d more", total-shown)
+		}
+		if utf8.RuneCountInString(desc) <= limit {
+			return desc
+		}
+	}
+	return ""
 }
