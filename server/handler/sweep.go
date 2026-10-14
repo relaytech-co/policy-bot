@@ -41,6 +41,8 @@ const (
 	// sweepMaxAttempts is how often one head commit is evaluated by the sweep, so a pull request that is pending for good reason is not evaluated every pass
 	sweepMaxAttempts = 3
 	sweepConcurrency = 5
+	// mergeQueueBranchPrefix starts the head branch of the draft pull requests the Graphite merge queue runs CI on
+	mergeQueueBranchPrefix = "gtmq_"
 )
 
 // SweepConfig enables re-evaluating open pull requests whose status looks stuck, because a webhook was missed or its evaluation failed.
@@ -107,6 +109,7 @@ type SweepPR struct {
 	Mergeable   githubv4.MergeableState
 	UpdatedAt   time.Time
 	BaseRefName string
+	HeadRefName string
 	Commits     struct {
 		Nodes []struct {
 			Commit struct {
@@ -141,8 +144,10 @@ func (pr *SweepPR) headSHA() string {
 
 // stuckReason says why the pull request's status needs evaluating, or "" when it does not.
 func stuckReason(pr *SweepPR, statusContext string, now time.Time, pendingAge time.Duration) string {
-	// A draft is evaluated when it is marked ready, and a conflicting pull request runs no workflows until it is fixed
-	if pr.IsDraft || pr.Mergeable == githubv4.MergeableStateConflicting || len(pr.Commits.Nodes) == 0 {
+	// A draft is evaluated when it is marked ready, except merge queue drafts which never are
+	isQueueDraft := strings.HasPrefix(pr.HeadRefName, mergeQueueBranchPrefix)
+	// A conflicting pull request runs no workflows until it is fixed
+	if (pr.IsDraft && !isQueueDraft) || pr.Mergeable == githubv4.MergeableStateConflicting || len(pr.Commits.Nodes) == 0 {
 		return ""
 	}
 	commit := pr.Commits.Nodes[0].Commit
