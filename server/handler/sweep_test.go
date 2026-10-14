@@ -104,6 +104,12 @@ func TestStuckReason(t *testing.T) {
 			pr.IsDraft = true
 			return pr
 		}()},
+		"mergeQueueDraft": {PR: func() SweepPR {
+			pr := makeSweepPR(1, 0)
+			pr.IsDraft = true
+			pr.HeadRefName = "gtmq_spec_8540c0_1791970876539"
+			return pr
+		}(), Expected: "no status"},
 		"conflicting": {PR: func() SweepPR {
 			pr := makeSweepPR(1, 0)
 			pr.Mergeable = githubv4.MergeableStateConflicting
