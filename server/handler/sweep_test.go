@@ -217,6 +217,17 @@ func TestSweeperPassCapsEvaluations(t *testing.T) {
 	assert.Equal(t, []int{1, 3}, evaluated(), "the one cut last time goes first, then the most recent")
 }
 
+func TestSweeperPassPrioritisesMergeQueueDrafts(t *testing.T) {
+	queueDraft := makeSweepPR(3, 2*time.Minute)
+	queueDraft.IsDraft = true
+	queueDraft.HeadRefName = "gtmq_spec_8540c0_1791970876539"
+	pager := &fakePager{pages: [][]SweepPR{{makeSweepPR(1, time.Minute), makeSweepPR(2, time.Minute), queueDraft}}}
+	s, evaluated := newTestSweeper(pager, 1)
+
+	s.Pass(context.Background())
+	assert.Equal(t, []int{3}, evaluated(), "the merge queue draft goes first despite being least recently updated")
+}
+
 func TestSweepConfigFromEnv(t *testing.T) {
 	t.Setenv("SW_REPOSITORIES", "relaytech-co/relaycode, relaytech-co/other")
 	t.Setenv("SW_INTERVAL", "90s")

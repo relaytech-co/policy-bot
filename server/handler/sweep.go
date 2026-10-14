@@ -142,12 +142,15 @@ func (pr *SweepPR) headSHA() string {
 	return pr.Commits.Nodes[0].Commit.Oid
 }
 
+func (pr *SweepPR) isMergeQueueDraft() bool {
+	return strings.HasPrefix(pr.HeadRefName, mergeQueueBranchPrefix)
+}
+
 // stuckReason says why the pull request's status needs evaluating, or "" when it does not.
 func stuckReason(pr *SweepPR, statusContext string, now time.Time, pendingAge time.Duration) string {
 	// A draft is evaluated when it is marked ready, except merge queue drafts which never are
-	isQueueDraft := strings.HasPrefix(pr.HeadRefName, mergeQueueBranchPrefix)
 	// A conflicting pull request runs no workflows until it is fixed
-	if (pr.IsDraft && !isQueueDraft) || pr.Mergeable == githubv4.MergeableStateConflicting || len(pr.Commits.Nodes) == 0 {
+	if (pr.IsDraft && !pr.isMergeQueueDraft()) || pr.Mergeable == githubv4.MergeableStateConflicting || len(pr.Commits.Nodes) == 0 {
 		return ""
 	}
 	commit := pr.Commits.Nodes[0].Commit
@@ -213,6 +216,7 @@ type sweepCandidate struct {
 	number      int
 	sha         string
 	reason      string
+	queueDraft  bool
 }
 
 // Start runs passes every Config.Interval until ctx is done. It does nothing when no repository is configured.
@@ -278,7 +282,7 @@ func (s *Sweeper) sweepRepository(ctx context.Context, owner, repo string, budge
 			if reason == "" || !s.attemptsLeft(pr.headSHA()) {
 				continue
 			}
-			candidates = append(candidates, sweepCandidate{owner: owner, repo: repo, number: pr.Number, sha: pr.headSHA(), reason: reason})
+			candidates = append(candidates, sweepCandidate{owner: owner, repo: repo, number: pr.Number, sha: pr.headSHA(), reason: reason, queueDraft: pr.isMergeQueueDraft()})
 		}
 	}
 
@@ -313,9 +317,12 @@ func (s *Sweeper) sweepRepository(ctx context.Context, owner, repo string, budge
 	s.backlog[key] = next
 	s.mu.Unlock()
 
-	// Fewest attempts first, so pull requests the sweep keeps retrying do not crowd out new ones under the cap
+	// Merge queue drafts first since they block every merge, then fewest attempts so retries do not crowd out new ones under the cap
 	s.mu.Lock()
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].queueDraft != candidates[j].queueDraft {
+			return candidates[i].queueDraft
+		}
 		return s.attempts[candidates[i].sha].count < s.attempts[candidates[j].sha].count
 	})
 	s.mu.Unlock()
