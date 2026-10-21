@@ -50,12 +50,17 @@ func status(state githubv4.StatusState, age time.Duration) prOption {
 }
 
 func suite(app string, state githubv4.CheckStatusState) prOption {
+	return suiteUpdated(app, state, 0)
+}
+
+func suiteUpdated(app string, state githubv4.CheckStatusState, age time.Duration) prOption {
 	return func(pr *SweepPR) {
 		c := &pr.Commits.Nodes[0].Commit
 		c.CheckSuites.Nodes = append(c.CheckSuites.Nodes, struct {
-			Status githubv4.CheckStatusState
-			App    *struct{ Slug string }
-		}{Status: state, App: &struct{ Slug string }{Slug: app}})
+			Status    githubv4.CheckStatusState
+			UpdatedAt time.Time
+			App       *struct{ Slug string }
+		}{Status: state, UpdatedAt: sweepNow.Add(-age), App: &struct{ Slug string }{Slug: app}})
 	}
 }
 
@@ -73,8 +78,9 @@ func makeSweepPR(number int, updated time.Duration, opts ...prOption) SweepPR {
 			}
 			CheckSuites struct {
 				Nodes []struct {
-					Status githubv4.CheckStatusState
-					App    *struct{ Slug string }
+					Status    githubv4.CheckStatusState
+					UpdatedAt time.Time
+					App       *struct{ Slug string }
 				}
 			} `graphql:"checkSuites(first: 50, filterBy: {appId: 15368})"`
 		}
@@ -99,6 +105,12 @@ func TestStuckReason(t *testing.T) {
 		"pendingWhileRunning":   {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("github-actions", githubv4.CheckStatusStateInProgress))},
 		"pendingAfterWorkflows": {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("github-actions", githubv4.CheckStatusStateCompleted)), Expected: "pending with no workflow running"},
 		"otherAppQueuedForever": {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("some-app", githubv4.CheckStatusStateQueued)), Expected: "pending with no workflow running"},
+		"failureAfterWorkflows": {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("github-actions", githubv4.CheckStatusStateCompleted, 2*time.Hour))},
+		"failureThenRerunPassed": {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("github-actions", githubv4.CheckStatusStateCompleted, 2*time.Hour),
+			suiteUpdated("github-actions", githubv4.CheckStatusStateCompleted, 10*time.Minute)), Expected: "failure older than a finished workflow"},
+		"failureRerunJustFinished": {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("github-actions", githubv4.CheckStatusStateCompleted, 10*time.Second))},
+		"failureRerunRunning":      {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("github-actions", githubv4.CheckStatusStateInProgress, 10*time.Minute))},
+		"failureOtherAppFinished":  {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("some-app", githubv4.CheckStatusStateCompleted, 10*time.Minute))},
 		"draft": {PR: func() SweepPR {
 			pr := makeSweepPR(1, 0)
 			pr.IsDraft = true

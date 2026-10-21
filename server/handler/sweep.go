@@ -54,6 +54,7 @@ type SweepConfig struct {
 	// Window is how far back each pass reads recently updated pull requests. Each pass also reads one page of older ones, so every open pull request is reached in turn.
 	Window time.Duration `yaml:"window"`
 	// PendingAge is how long a pending status must be old, with no workflow running, before it counts as stuck.
+	// It is also how long a workflow must have finished, after a failure status was posted, before that status counts as stale.
 	PendingAge time.Duration `yaml:"pending_age"`
 	// MaxEvaluations caps the evaluations in one pass, recent pull requests first.
 	MaxEvaluations int `yaml:"max_evaluations"`
@@ -124,8 +125,9 @@ type SweepPR struct {
 				// Only GitHub Actions suites, app id 15368, to keep the query fast
 				CheckSuites struct {
 					Nodes []struct {
-						Status githubv4.CheckStatusState
-						App    *struct {
+						Status    githubv4.CheckStatusState
+						UpdatedAt time.Time
+						App       *struct {
 							Slug string
 						}
 					}
@@ -181,6 +183,16 @@ func stuckReason(pr *SweepPR, statusContext string, now time.Time, pendingAge ti
 			}
 		}
 		return "pending with no workflow running"
+	case githubv4.StatusStateFailure:
+		// A workflow that finished after the failure was posted, such as a re-run of the one that failed, may have fixed it.
+		// Its own webhook gets PendingAge to arrive first.
+		for _, suite := range commit.CheckSuites.Nodes {
+			if suite.App != nil && suite.App.Slug == "github-actions" && suite.Status == githubv4.CheckStatusStateCompleted &&
+				suite.UpdatedAt.After(createdAt) && now.Sub(suite.UpdatedAt) >= pendingAge {
+				return "failure older than a finished workflow"
+			}
+		}
+		return ""
 	default:
 		return ""
 	}
