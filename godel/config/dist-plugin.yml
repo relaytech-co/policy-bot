@@ -45,8 +45,8 @@ products:
             cp -R docker/* ${CONTEXT_DIR}
             cp -R config ${CONTEXT_DIR}
           tag-templates:
-            version: "{{Repository}}palantirtechnologies/policy-bot:{{Version}}"
-            latest: "{{Repository}}palantirtechnologies/policy-bot:latest"
-            snapshot: "{{Repository}}palantirtechnologies/policy-bot:snapshot"
+            version: "europe-west1-docker.pkg.dev/relaytech-production/relaycode/policy-bot:{{Version}}"
+            latest: "europe-west1-docker.pkg.dev/relaytech-production/relaycode/policy-bot:latest"
+            snapshot: "europe-west1-docker.pkg.dev/relaytech-production/relaycode/policy-bot:snapshot"
     publish:
       group-id: com.palantir.policy-bot

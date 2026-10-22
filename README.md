@@ -1336,7 +1336,7 @@ and [Yarn](https://yarnpkg.com/).
     # build the docker image
     ./godelw docker build --verbose
 
-    docker run --rm -v "$(pwd)/config:/secrets/" -p 8080:8080 palantirtechnologies/policy-bot:latest
+    docker run --rm -v "$(pwd)/config:/secrets/" -p 8080:8080 europe-west1-docker.pkg.dev/relaytech-production/relaycode/policy-bot:latest
 
 - This will mount the path relative path `config/` which should contain the
   modified config file `policy-bot.yml`
