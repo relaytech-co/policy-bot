@@ -145,7 +145,11 @@ func (pr *SweepPR) headSHA() string {
 }
 
 func (pr *SweepPR) isMergeQueueDraft() bool {
-	return strings.HasPrefix(pr.HeadRefName, mergeQueueBranchPrefix)
+	return isMergeQueueBranch(pr.HeadRefName)
+}
+
+func isMergeQueueBranch(ref string) bool {
+	return strings.HasPrefix(ref, mergeQueueBranchPrefix)
 }
 
 // stuckReason says why the pull request's status needs evaluating, or "" when it does not.

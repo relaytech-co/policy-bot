@@ -59,3 +59,27 @@ func TestPullRequestTrigger(t *testing.T) {
 		})
 	}
 }
+
+func TestClosedQueueDraftNeedsFailure(t *testing.T) {
+	repoStatus := func(context, state string) *github.RepoStatus {
+		return &github.RepoStatus{Context: &context, State: &state}
+	}
+
+	tests := map[string]struct {
+		Statuses []*github.RepoStatus
+		Expected bool
+	}{
+		"noStatus":     {Expected: true},
+		"otherContext": {Statuses: []*github.RepoStatus{repoStatus("other", "success")}, Expected: true},
+		"pending":      {Statuses: []*github.RepoStatus{repoStatus("relay-checks", "pending")}, Expected: true},
+		"success":      {Statuses: []*github.RepoStatus{repoStatus("relay-checks", "success")}},
+		"failure":      {Statuses: []*github.RepoStatus{repoStatus("relay-checks", "failure")}},
+		"error":        {Statuses: []*github.RepoStatus{repoStatus("relay-checks", "error")}},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.Expected, closedQueueDraftNeedsFailure(test.Statuses, "relay-checks"))
+		})
+	}
+}
