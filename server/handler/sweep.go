@@ -132,6 +132,10 @@ type SweepPR struct {
 						}
 					}
 				} `graphql:"checkSuites(first: 50, filterBy: {appId: 15368})"`
+				// Cloud Build suites, app id 10529, which run CI outside GitHub Actions
+				CloudBuildSuites struct {
+					Nodes []workflowSuite
+				} `graphql:"cloudBuildSuites: checkSuites(first: 10, filterBy: {appId: 10529})"`
 			}
 		}
 	} `graphql:"commits(last: 1)"`
@@ -180,9 +184,9 @@ func stuckReason(pr *SweepPR, statusContext string, now time.Time, pendingAge ti
 		if now.Sub(createdAt) < pendingAge {
 			return ""
 		}
-		// Only GitHub Actions suites, since other apps can leave a suite queued that never runs
-		for _, suite := range commit.CheckSuites.Nodes {
-			if suite.App != nil && suite.App.Slug == "github-actions" && suite.Status != githubv4.CheckStatusStateCompleted {
+		// Only GitHub Actions and Cloud Build suites, since other apps can leave a suite queued that never runs
+		for _, suite := range workflowSuites(pr) {
+			if suite.Status != githubv4.CheckStatusStateCompleted {
 				return ""
 			}
 		}
@@ -190,8 +194,8 @@ func stuckReason(pr *SweepPR, statusContext string, now time.Time, pendingAge ti
 	case githubv4.StatusStateFailure:
 		// A workflow that finished after the failure was posted, such as a re-run of the one that failed, may have fixed it.
 		// Its own webhook gets PendingAge to arrive first.
-		for _, suite := range commit.CheckSuites.Nodes {
-			if suite.App != nil && suite.App.Slug == "github-actions" && suite.Status == githubv4.CheckStatusStateCompleted &&
+		for _, suite := range workflowSuites(pr) {
+			if suite.Status == githubv4.CheckStatusStateCompleted &&
 				suite.UpdatedAt.After(createdAt) && now.Sub(suite.UpdatedAt) >= pendingAge {
 				return "failure older than a finished workflow"
 			}
@@ -200,6 +204,23 @@ func stuckReason(pr *SweepPR, statusContext string, now time.Time, pendingAge ti
 	default:
 		return ""
 	}
+}
+
+type workflowSuite struct {
+	Status    githubv4.CheckStatusState
+	UpdatedAt time.Time
+}
+
+// workflowSuites returns the head commit's GitHub Actions and Cloud Build suites, the apps that run CI
+func workflowSuites(pr *SweepPR) []workflowSuite {
+	commit := pr.Commits.Nodes[0].Commit
+	var suites []workflowSuite
+	for _, s := range commit.CheckSuites.Nodes {
+		if s.App != nil && s.App.Slug == "github-actions" {
+			suites = append(suites, workflowSuite{Status: s.Status, UpdatedAt: s.UpdatedAt})
+		}
+	}
+	return append(suites, commit.CloudBuildSuites.Nodes...)
 }
 
 // PullRequestPager reads one page of a repository's open pull requests, most recently updated first.

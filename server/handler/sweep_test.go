@@ -64,6 +64,13 @@ func suiteUpdated(app string, state githubv4.CheckStatusState, age time.Duration
 	}
 }
 
+func cloudBuildSuite(state githubv4.CheckStatusState, age time.Duration) prOption {
+	return func(pr *SweepPR) {
+		c := &pr.Commits.Nodes[0].Commit
+		c.CloudBuildSuites.Nodes = append(c.CloudBuildSuites.Nodes, workflowSuite{Status: state, UpdatedAt: sweepNow.Add(-age)})
+	}
+}
+
 func makeSweepPR(number int, updated time.Duration, opts ...prOption) SweepPR {
 	pr := SweepPR{Number: number, Mergeable: githubv4.MergeableStateMergeable, UpdatedAt: sweepNow.Add(-updated), BaseRefName: "dev"}
 	pr.Commits.Nodes = make([]struct {
@@ -83,6 +90,9 @@ func makeSweepPR(number int, updated time.Duration, opts ...prOption) SweepPR {
 					App       *struct{ Slug string }
 				}
 			} `graphql:"checkSuites(first: 50, filterBy: {appId: 15368})"`
+			CloudBuildSuites struct {
+				Nodes []workflowSuite
+			} `graphql:"cloudBuildSuites: checkSuites(first: 10, filterBy: {appId: 10529})"`
 		}
 	}, 1)
 	pr.Commits.Nodes[0].Commit.Oid = "sha" + string(rune('a'+number%26))
@@ -104,6 +114,12 @@ func TestStuckReason(t *testing.T) {
 		"freshPending":          {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, 10*time.Second))},
 		"pendingWhileRunning":   {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("github-actions", githubv4.CheckStatusStateInProgress))},
 		"pendingAfterWorkflows": {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("github-actions", githubv4.CheckStatusStateCompleted)), Expected: "pending with no workflow running"},
+		"pendingWhileCloudBuildRunning": {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("github-actions", githubv4.CheckStatusStateCompleted),
+			cloudBuildSuite(githubv4.CheckStatusStateInProgress, 0))},
+		"pendingAfterCloudBuild": {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("github-actions", githubv4.CheckStatusStateCompleted),
+			cloudBuildSuite(githubv4.CheckStatusStateCompleted, 0)), Expected: "pending with no workflow running"},
+		"failureThenCloudBuildRerunPassed": {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), cloudBuildSuite(githubv4.CheckStatusStateCompleted, 10*time.Minute)),
+			Expected: "failure older than a finished workflow"},
 		"otherAppQueuedForever": {PR: makeSweepPR(1, 0, status(githubv4.StatusStatePending, time.Hour), suite("some-app", githubv4.CheckStatusStateQueued)), Expected: "pending with no workflow running"},
 		"failureAfterWorkflows": {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("github-actions", githubv4.CheckStatusStateCompleted, 2*time.Hour))},
 		"failureThenRerunPassed": {PR: makeSweepPR(1, 0, status(githubv4.StatusStateFailure, time.Hour), suiteUpdated("github-actions", githubv4.CheckStatusStateCompleted, 2*time.Hour),
