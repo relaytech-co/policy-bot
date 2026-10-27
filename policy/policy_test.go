@@ -686,3 +686,114 @@ func TestReferencedWorkflows(t *testing.T) {
 		})
 	}
 }
+
+func TestReferencedStatuses(t *testing.T) {
+	tests := map[string]struct {
+		Config   Config
+		Expected []string
+	}{
+		"empty": {
+			Config: Config{},
+		},
+		"rulePredicate": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "build",
+						Predicates: predicate.Predicates{
+							HasStatus: predicate.NewHasStatus([]string{"build"}, nil),
+						},
+					},
+				},
+			},
+			Expected: []string{"build"},
+		},
+		"requiresConditions": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "build",
+						Requires: approval.Requires{
+							Conditions: predicate.Predicates{
+								HasStatus: predicate.NewHasStatus([]string{"build"}, nil),
+							},
+						},
+					},
+				},
+			},
+			Expected: []string{"build"},
+		},
+		"deprecatedHasSuccessfulStatus": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "build",
+						Predicates: predicate.Predicates{
+							HasSuccessfulStatus: &predicate.HasSuccessfulStatus{"build"},
+						},
+					},
+				},
+			},
+			Expected: []string{"build"},
+		},
+		"disapproval": {
+			Config: Config{
+				Policy: Policy{
+					Disapproval: &disapproval.Policy{
+						Predicates: predicate.Predicates{
+							HasStatus: predicate.NewHasStatus([]string{"block"}, nil),
+						},
+					},
+				},
+			},
+			Expected: []string{"block"},
+		},
+		"deduplicatesAcrossRules": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					nil,
+					{
+						Name: "one",
+						Requires: approval.Requires{
+							Conditions: predicate.Predicates{
+								HasStatus: predicate.NewHasStatus([]string{"build"}, nil),
+							},
+						},
+					},
+					{
+						Name: "two",
+						Requires: approval.Requires{
+							Conditions: predicate.Predicates{
+								HasStatus:           predicate.NewHasStatus([]string{"build", "test"}, nil),
+								HasSuccessfulStatus: &predicate.HasSuccessfulStatus{"test"},
+							},
+						},
+					},
+				},
+			},
+			Expected: []string{"build", "test"},
+		},
+		"otherPredicatesAreIgnored": {
+			Config: Config{
+				ApprovalRules: []*approval.Rule{
+					{
+						Name: "lint",
+						Predicates: predicate.Predicates{
+							HasWorkflowResult: predicate.NewHasWorkflowResult([]string{".github/workflows/lint.yml"}, nil),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			var actual []string
+			for s := range test.Config.ReferencedStatuses() {
+				actual = append(actual, s)
+			}
+			assert.ElementsMatch(t, test.Expected, actual)
+		})
+	}
+}

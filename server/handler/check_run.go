@@ -51,7 +51,13 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 
 	ctx, logger := githubapp.PrepareRepoContext(ctx, installationID, repo)
 
-	logger.Debug().Msgf("Check run event is for '%s', found %d PRs", event.GetCheckRun().GetName(), len(event.GetCheckRun().PullRequests))
+	client, err := h.NewInstallationClient(installationID)
+	if err != nil {
+		return errors.Wrap(err, "failed to create installation client")
+	}
+
+	checkName := event.GetCheckRun().GetName()
+	logger.Debug().Msgf("Check run event is for '%s', found %d PRs", checkName, len(event.GetCheckRun().PullRequests))
 
 	var evaluationFailures []error
 	for _, pr := range event.GetCheckRun().PullRequests {
@@ -72,6 +78,13 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 			continue
 		}
 
+		// Every GitHub Actions job is a check run, and workflow_run events already cover the workflows the policy reads.
+		// So only evaluate when some rule names this check.
+		if h.ignoresStatus(ctx, client, ownerName, repoName, h.PullOpts.PolicyBranch(pr.GetBase().GetRef(), pr.GetHead().GetRef()), checkName) {
+			logger.Debug().Msgf("Skipping pull request '%d': no rule references check '%s'", pr.GetNumber(), checkName)
+			continue
+		}
+
 		if err := h.Evaluate(ctx, installationID, common.TriggerStatus, pull.Locator{
 			Owner:  ownerName,
 			Repo:   repoName,
@@ -87,4 +100,20 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 	}
 	// Joined rather than counted, so a retry can tell a transient failure from a permanent one
 	return errors.Wrapf(stderrors.Join(evaluationFailures...), "failed to evaluate %d pull requests", len(evaluationFailures))
+}
+
+// ignoresStatus reports whether the policy on baseRef, or the default branch when empty, reads no status or check named name.
+// A config that is missing, unreadable or invalid is never ignored, so the evaluation still runs and reports it.
+func (h *CheckRun) ignoresStatus(ctx context.Context, client *github.Client, owner, repo, baseRef, name string) bool {
+	if name == "" {
+		return false
+	}
+
+	fetched := h.ConfigFetcher.ConfigForRepositoryBranch(ctx, client, owner, repo, baseRef)
+	if fetched.Config == nil || fetched.LoadError != nil || fetched.ParseError != nil {
+		return false
+	}
+
+	_, ok := fetched.Config.ReferencedStatuses()[name]
+	return !ok
 }

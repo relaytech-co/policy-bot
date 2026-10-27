@@ -61,11 +61,22 @@ type GlobalOptions struct {
 // ReferencedWorkflows returns the set of workflow file paths this config can observe.
 // A workflow_run event for anything else cannot change the result, so it needs no evaluation.
 func (c *Config) ReferencedWorkflows() map[string]struct{} {
-	workflows := make(map[string]struct{})
+	return c.referenced((*predicate.Predicates).WorkflowPaths)
+}
+
+// ReferencedStatuses returns the set of status contexts and check run names this config can observe.
+// A check_run or status event for anything else cannot change the result, so it needs no evaluation.
+func (c *Config) ReferencedStatuses() map[string]struct{} {
+	return c.referenced((*predicate.Predicates).StatusContexts)
+}
+
+// referenced collects what names reports for every rule's predicates and conditions
+func (c *Config) referenced(names func(*predicate.Predicates) []string) map[string]struct{} {
+	set := make(map[string]struct{})
 
 	add := func(p predicate.Predicates) {
-		for _, w := range p.WorkflowPaths() {
-			workflows[w] = struct{}{}
+		for _, n := range names(&p) {
+			set[n] = struct{}{}
 		}
 	}
 
@@ -81,7 +92,7 @@ func (c *Config) ReferencedWorkflows() map[string]struct{} {
 		add(c.Policy.Disapproval.Predicates)
 	}
 
-	return workflows
+	return set
 }
 
 func ParsePolicy(c *Config, opts *GlobalOptions) (common.Evaluator, error) {
