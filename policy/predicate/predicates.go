@@ -168,3 +168,15 @@ func (p *Predicates) WorkflowPaths() []string {
 	}
 	return p.HasWorkflowResult.Workflows
 }
+
+// StatusContexts returns the status contexts and check run names these predicates observe.
+func (p *Predicates) StatusContexts() []string {
+	var contexts []string
+	if p.HasStatus != nil {
+		contexts = append(contexts, p.HasStatus.Statuses...)
+	}
+	if p.HasSuccessfulStatus != nil {
+		contexts = append(contexts, *p.HasSuccessfulStatus...)
+	}
+	return contexts
+}
