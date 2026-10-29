@@ -128,3 +128,19 @@ func (b *Base) Evaluate(ctx context.Context, installationID int64, trigger commo
 	}
 	return evalCtx.Evaluate(ctx, trigger)
 }
+
+// ignoresStatus reports whether the policy on baseRef, or the default branch when empty, reads no status or check named name.
+// A config that is missing, unreadable or invalid is never ignored, so the evaluation still runs and reports it.
+func (b *Base) ignoresStatus(ctx context.Context, client *github.Client, owner, repo, baseRef, name string) bool {
+	if name == "" {
+		return false
+	}
+
+	fetched := b.ConfigFetcher.ConfigForRepositoryBranch(ctx, client, owner, repo, baseRef)
+	if fetched.Config == nil || fetched.LoadError != nil || fetched.ParseError != nil {
+		return false
+	}
+
+	_, ok := fetched.Config.ReferencedStatuses()[name]
+	return !ok
+}

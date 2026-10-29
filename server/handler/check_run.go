@@ -78,6 +78,12 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 			continue
 		}
 
+		// A policy reads checks from the head commit only, so a check on a commit lower in a stack cannot change the result
+		if pr.GetHead().GetSHA() != commitSHA {
+			logger.Debug().Msgf("Skipping pull request '%d': check run is not on its head commit", pr.GetNumber())
+			continue
+		}
+
 		// Every GitHub Actions job is a check run, and workflow_run events already cover the workflows the policy reads.
 		// So only evaluate when some rule names this check.
 		if h.ignoresStatus(ctx, client, ownerName, repoName, h.PullOpts.PolicyBranch(pr.GetBase().GetRef(), pr.GetHead().GetRef()), checkName) {
@@ -100,20 +106,4 @@ func (h *CheckRun) Handle(ctx context.Context, eventType, deliveryID string, pay
 	}
 	// Joined rather than counted, so a retry can tell a transient failure from a permanent one
 	return errors.Wrapf(stderrors.Join(evaluationFailures...), "failed to evaluate %d pull requests", len(evaluationFailures))
-}
-
-// ignoresStatus reports whether the policy on baseRef, or the default branch when empty, reads no status or check named name.
-// A config that is missing, unreadable or invalid is never ignored, so the evaluation still runs and reports it.
-func (h *CheckRun) ignoresStatus(ctx context.Context, client *github.Client, owner, repo, baseRef, name string) bool {
-	if name == "" {
-		return false
-	}
-
-	fetched := h.ConfigFetcher.ConfigForRepositoryBranch(ctx, client, owner, repo, baseRef)
-	if fetched.Config == nil || fetched.LoadError != nil || fetched.ParseError != nil {
-		return false
-	}
-
-	_, ok := fetched.Config.ReferencedStatuses()[name]
-	return !ok
 }

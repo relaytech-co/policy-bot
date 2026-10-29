@@ -132,19 +132,31 @@ func (h *Status) processOthers(ctx context.Context, event github.StatusEvent) er
 
 	var evaluationFailures []error
 	for _, pr := range prs {
-		if pr.GetState() == "open" {
-			err = h.Evaluate(ctx, installationID, common.TriggerStatus, pull.Locator{
-				Owner:  ownerName,
-				Repo:   repoName,
-				Number: pr.GetNumber(),
-				Value:  pr,
-			})
-			if err != nil {
-				evaluationFailures = append(evaluationFailures, err)
-				logger.Error().Err(err).Msgf("Failed to evaluate pull request '%d' for SHA '%s'", pr.GetNumber(),
-					commitSHA)
+		if pr.GetState() != "open" {
+			continue
+		}
 
-			}
+		// A policy reads statuses from the head commit only, so a status on a commit lower in a stack cannot change the result
+		if pr.GetHead().GetSHA() != commitSHA {
+			logger.Debug().Msgf("Skipping pull request '%d': status is not on its head commit", pr.GetNumber())
+			continue
+		}
+
+		// Every Cloud Build trigger posts a status, so only evaluate when some rule names this context
+		if h.ignoresStatus(ctx, client, ownerName, repoName, h.PullOpts.PolicyBranch(pr.GetBase().GetRef(), pr.GetHead().GetRef()), event.GetContext()) {
+			logger.Debug().Msgf("Skipping pull request '%d': no rule references status '%s'", pr.GetNumber(), event.GetContext())
+			continue
+		}
+
+		err = h.Evaluate(ctx, installationID, common.TriggerStatus, pull.Locator{
+			Owner:  ownerName,
+			Repo:   repoName,
+			Number: pr.GetNumber(),
+			Value:  pr,
+		})
+		if err != nil {
+			evaluationFailures = append(evaluationFailures, err)
+			logger.Error().Err(err).Msgf("Failed to evaluate pull request '%d' for SHA '%s'", pr.GetNumber(), commitSHA)
 		}
 	}
 	if len(evaluationFailures) == 0 {
