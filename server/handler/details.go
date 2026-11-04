@@ -84,9 +84,13 @@ func (h *Details) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 	data.User = state.Username
 	data.PolicyURL = getPolicyURL(state.PullRequest, evalCtx.Config)
 	data.ExpandRequiredReviewers = h.PullOpts.ExpandRequiredReviewers
-	data.CanOverride = h.PullOpts.CanOverride(state.Username) && state.PullRequest.GetState() == "open"
 	data.PullRequest = state.PullRequest
 
+	if canOverride, err := h.PullOpts.CanOverride(ctx, evalCtx.PullContext, state.Username); err != nil {
+		state.Logger.Warn().Err(err).Msg("Failed to check whether the user may override")
+	} else {
+		data.CanOverride = canOverride && state.PullRequest.GetState() == "open"
+	}
 	if overriddenBy, err := evalCtx.OverriddenBy(); err != nil {
 		state.Logger.Warn().Err(err).Msg("Failed to read the current status")
 	} else {
@@ -204,7 +208,11 @@ func (h *DetailsOverride) ServeHTTP(w http.ResponseWriter, r *http.Request) erro
 		return nil
 	}
 
-	if !h.PullOpts.CanOverride(state.Username) {
+	canOverride, err := h.PullOpts.CanOverride(state.Ctx, state.EvalContext.PullContext, state.Username)
+	if err != nil {
+		return errors.Wrap(err, "failed to check whether the user may override")
+	}
+	if !canOverride {
 		http.Error(w, "You are not allowed to override statuses", http.StatusForbidden)
 		return nil
 	}

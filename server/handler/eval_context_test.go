@@ -176,10 +176,15 @@ func TestPostOverride(t *testing.T) {
 	ec := makeEvalContext(true)
 	ec.SkipPostStatus = false
 	ec.Client = client
-	ec.Options.OverrideUsers = []string{"Tommy"}
+	ec.Options.Overriders = &common.Actors{Teams: []string{"testorg/super-admins"}}
+	ec.PullContext.(*pulltest.Context).TeamMemberships = map[string][]string{"tommy": {"testorg/super-admins"}}
 
-	assert.True(t, ec.Options.CanOverride("tommy"))
-	assert.False(t, ec.Options.CanOverride("dan"))
+	canOverride, err := ec.Options.CanOverride(context.Background(), ec.PullContext, "tommy")
+	require.NoError(t, err)
+	assert.True(t, canOverride)
+	canOverride, err = ec.Options.CanOverride(context.Background(), ec.PullContext, "dan")
+	require.NoError(t, err)
+	assert.False(t, canOverride)
 
 	overriddenBy, err := ec.OverriddenBy()
 	require.NoError(t, err)

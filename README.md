@@ -1163,9 +1163,9 @@ relevant audit logs or minimize write access to repositories.
 
 #### Overrides <!-- omit in toc -->
 
-When the `options.override_users` server option lists GitHub logins, those
-users see an "Override" button on the details page of a pull request whose
-status is not yet successful. Pressing it posts a successful status for the
+When the `options.overriders` server option names users, teams, organizations
+or permissions, like a rule's approvers, those users see an "Override" button
+on the details page of a pull request whose status is not yet successful. Pressing it posts a successful status for the
 head commit with the description "Overridden by <login>", and later
 evaluations keep that status instead of replacing it. Pushing a new commit
 clears the override, since it belongs to the commit. Each override is logged
