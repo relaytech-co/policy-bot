@@ -163,6 +163,14 @@ sessions:
 #   # environment variable.
 #   expand_required_reviewers: false
 #
+#   # Who may mark a pull request's status successful from the details UI, until a new
+#   # commit is pushed. Takes users, teams, organizations and permissions like a rule's
+#   # approvers. Can also be set as comma-separated lists by the
+#   # POLICYBOT_OPTIONS_OVERRIDERS_USERS, _TEAMS, _ORGANIZATIONS and _PERMISSIONS
+#   # environment variables.
+#   overriders:
+#     teams: ["org/super-admins"]
+#
 #   # If true, forces the use of the shared repository policy for all repositories,
 #   # even if they define their own local policy file.
 #   # Can also be set by the POLICYBOT_OPTIONS_FORCE_SHARED_POLICY

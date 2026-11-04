@@ -15,6 +15,7 @@
 package handler
 
 import (
+	"context"
 	"encoding"
 	"fmt"
 	"os"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/palantir/policy-bot/policy/approval"
 	"github.com/palantir/policy-bot/policy/common"
+	"github.com/palantir/policy-bot/pull"
 )
 
 const (
@@ -60,6 +62,10 @@ type PullEvaluationOptions struct {
 	// PolicyFromDefaultBranchHeadPrefix reads the policy from the default branch for a pull request whose head branch starts with it.
 	// Merge queue pull requests are based on each other's branches, which the queue deletes as it merges them.
 	PolicyFromDefaultBranchHeadPrefix string `yaml:"policy_from_default_branch_head_prefix"`
+
+	// Overriders may mark a pull request's status successful from the details page, as users, teams, organizations or permissions.
+	// The override lasts until a new commit is pushed. Unset disables it.
+	Overriders *common.Actors `yaml:"overriders"`
 
 	// ExpandRequiredReviewers enables a UI feature where the details page
 	// shows a list of the users who can approve each rule. Enabling this
@@ -116,6 +122,14 @@ func (p *PullEvaluationOptions) PolicyBranch(baseBranch, headBranch string) stri
 	return baseBranch
 }
 
+// CanOverride reports whether user may override the status of the pull request in prctx.
+func (p *PullEvaluationOptions) CanOverride(ctx context.Context, prctx pull.Context, user string) (bool, error) {
+	if p.Overriders.IsZero() {
+		return false, nil
+	}
+	return p.Overriders.IsActor(ctx, prctx, user)
+}
+
 // PostsSeparateInsecureStatus reports whether a second, branchless status is worth posting.
 // It is redundant when the branch is already left out of every context.
 func (p *PullEvaluationOptions) PostsSeparateInsecureStatus() bool {
@@ -167,8 +181,24 @@ func (p *PullEvaluationOptions) SetValuesFromEnv(prefix string) {
 	setBoolPtrFromEnv("IGNORE_EDITED_COMMENTS", prefix, &p.IgnoreEditedComments)
 
 	p.setApprovalDefaultsFromEnv(prefix + "APPROVAL_DEFAULTS_")
+	p.setOverridersFromEnv(prefix + "OVERRIDERS_")
 
 	p.fillDefaults()
+}
+
+func (p *PullEvaluationOptions) setOverridersFromEnv(prefix string) {
+	overriders := p.Overriders
+	if overriders == nil {
+		overriders = &common.Actors{}
+	}
+	if isAny(
+		setStringListFromEnv("USERS", prefix, &overriders.Users),
+		setStringListFromEnv("TEAMS", prefix, &overriders.Teams),
+		setStringListFromEnv("ORGANIZATIONS", prefix, &overriders.Organizations),
+		setListFromEnv("PERMISSIONS", prefix, &overriders.Permissions),
+	) {
+		p.Overriders = overriders
+	}
 }
 
 func (p *PullEvaluationOptions) setApprovalDefaultsFromEnv(prefix string) {
