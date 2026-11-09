@@ -934,8 +934,9 @@ func (ghc *GitHubContext) LatestWorkflowRuns() (map[string][]string, error) {
 	return ghc.workflowRuns, nil
 }
 
-// AddWorkflowRun gives the context a run it already knows the result of, such as the one a workflow_run event is for.
-// The runs API can still list that run as in progress for a few seconds after the event, which would otherwise read as no result.
+// AddWorkflowRun gives the context a run it already knows the state of, such as the one a workflow_run event is for.
+// The runs API can still list that run in its previous state for a few seconds after the event: in progress after it
+// completed, or completed after it was re-run.
 func (ghc *GitHubContext) AddWorkflowRun(run *github.WorkflowRun) {
 	if run.GetHeadSHA() != ghc.HeadSHA() {
 		return
@@ -944,61 +945,89 @@ func (ghc *GitHubContext) AddWorkflowRun(run *github.WorkflowRun) {
 	ghc.workflowRuns = nil
 }
 
-// mergeWorkflowRuns replaces each listed run with the known run of the same id, and adds known runs the listing missed.
+// mergeWorkflowRuns keeps one copy of each run among the listed and known runs: the one furthest along, or the last
+// given when neither is, so a known run replaces the listed one. A known run can be older than the listing, because
+// webhooks can arrive out of order and an evaluation held after a transient error is retried after its runs moved on.
 func mergeWorkflowRuns(listed, known []*github.WorkflowRun) []*github.WorkflowRun {
-	byID := make(map[int64]*github.WorkflowRun, len(known))
-	for _, run := range known {
-		byID[run.GetID()] = run
+	byID := make(map[int64]*github.WorkflowRun, len(listed)+len(known))
+	var ids []int64
+	add := func(run *github.WorkflowRun) {
+		previous, seen := byID[run.GetID()]
+		if !seen {
+			ids = append(ids, run.GetID())
+		}
+		if !seen || !furtherAlong(previous, run) {
+			byID[run.GetID()] = run
+		}
 	}
-	merged := make([]*github.WorkflowRun, 0, len(listed)+len(known))
 	for _, run := range listed {
-		if k, ok := byID[run.GetID()]; ok {
-			run = k
-			delete(byID, run.GetID())
-		}
-		merged = append(merged, run)
+		add(run)
 	}
 	for _, run := range known {
-		if _, ok := byID[run.GetID()]; ok {
-			merged = append(merged, run)
-		}
+		add(run)
+	}
+
+	merged := make([]*github.WorkflowRun, 0, len(ids))
+	for _, id := range ids {
+		merged = append(merged, byID[id])
 	}
 	return merged
 }
 
-// latestConclusions is the conclusion of the newest completed run of each workflow, per event that triggered it.
+// furtherAlong reports whether a is a later state of the same run than b: a later attempt, or the same attempt
+// completed where b has not.
+func furtherAlong(a, b *github.WorkflowRun) bool {
+	if a.GetRunAttempt() != b.GetRunAttempt() {
+		return a.GetRunAttempt() > b.GetRunAttempt()
+	}
+	return a.GetStatus() == "completed" && b.GetStatus() != "completed"
+}
+
+// latestConclusions is the conclusion of the newest run of each workflow, per event that triggered it.
+// The newest run is the one that started last, whether or not it has finished, because otherwise a run started after
+// an earlier one failed, such as by reopening the pull request or re-running the workflow, reads as that failure until
+// it finishes. A workflow whose newest run for any event has not finished is left out, so the policy waits for it.
 func latestConclusions(runs []*github.WorkflowRun) map[string][]string {
-	runsWithDate := make(map[string]map[string]*github.WorkflowRun)
+	latest := make(map[string]map[string]*github.WorkflowRun)
 	for _, run := range runs {
-		if run.GetStatus() != "completed" {
+		eventRuns := latest[run.GetPath()]
+		if eventRuns == nil {
+			eventRuns = make(map[string]*github.WorkflowRun)
+			latest[run.GetPath()] = eventRuns
+		}
+
+		previous := eventRuns[run.GetEvent()]
+		if previous != nil && startedAt(run).Before(startedAt(previous)) {
 			continue
 		}
-
-		eventName := run.GetEvent()
-
-		previousRuns := runsWithDate[run.GetPath()]
-		if previousRuns == nil {
-			previousRuns = make(map[string]*github.WorkflowRun)
-			runsWithDate[run.GetPath()] = previousRuns
-		}
-
-		previousRun := previousRuns[eventName]
-
-		// This is an older run than one we've already saw, so ignore it.
-		if previousRun != nil && run.GetUpdatedAt().Before(previousRun.GetUpdatedAt().Time) {
-			continue
-		}
-
-		previousRuns[eventName] = run
+		eventRuns[run.GetEvent()] = run
 	}
 
-	conclusions := make(map[string][]string, len(runsWithDate))
-	for path, eventRuns := range runsWithDate {
+	conclusions := make(map[string][]string, len(latest))
+	for path, eventRuns := range latest {
+		var pathConclusions []string
+		finished := true
 		for _, run := range eventRuns {
-			conclusions[path] = append(conclusions[path], run.GetConclusion())
+			if run.GetStatus() != "completed" {
+				finished = false
+				break
+			}
+			pathConclusions = append(pathConclusions, run.GetConclusion())
+		}
+		if finished {
+			conclusions[path] = pathConclusions
 		}
 	}
 	return conclusions
+}
+
+// startedAt is when the run's latest attempt started. A re-run keeps the run's created_at and moves run_started_at,
+// so created_at is only the fallback for a run that has not started yet.
+func startedAt(run *github.WorkflowRun) time.Time {
+	if t := run.GetRunStartedAt(); !t.IsZero() {
+		return t.Time
+	}
+	return run.GetCreatedAt().Time
 }
 
 func (ghc *GitHubContext) Labels() ([]string, error) {

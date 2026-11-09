@@ -837,3 +837,96 @@ func TestMergeWorkflowRuns(t *testing.T) {
 	assert.Same(t, listed[1], merged[1])
 	assert.Same(t, known[1], merged[2], "a known run the listing missed is added")
 }
+
+func TestMergeWorkflowRunsKeepsTheRunFurthestAlong(t *testing.T) {
+	run := func(attempt int, status string) *github.WorkflowRun {
+		return &github.WorkflowRun{ID: github.Ptr(int64(1)), RunAttempt: github.Ptr(attempt), Status: github.Ptr(status)}
+	}
+
+	t.Run("completedEventAfterRequested", func(t *testing.T) {
+		requested, completed := run(2, "queued"), run(2, "completed")
+		merged := mergeWorkflowRuns(nil, []*github.WorkflowRun{requested, completed})
+		assert.Equal(t, []*github.WorkflowRun{completed}, merged)
+	})
+
+	t.Run("requestedEventAfterCompleted", func(t *testing.T) {
+		// Held together, but handled in the other order
+		requested, completed := run(2, "queued"), run(2, "completed")
+		merged := mergeWorkflowRuns(nil, []*github.WorkflowRun{completed, requested})
+		assert.Equal(t, []*github.WorkflowRun{completed}, merged)
+	})
+
+	t.Run("staleKnownRunAfterListedCompletion", func(t *testing.T) {
+		// A requested event's evaluation retried after the run finished
+		listed, known := run(2, "completed"), run(2, "queued")
+		merged := mergeWorkflowRuns([]*github.WorkflowRun{listed}, []*github.WorkflowRun{known})
+		assert.Equal(t, []*github.WorkflowRun{listed}, merged)
+	})
+
+	t.Run("reRunAfterKnownCompletion", func(t *testing.T) {
+		// A completed event's evaluation run after the workflow was re-run
+		listed, known := run(2, "queued"), run(1, "completed")
+		merged := mergeWorkflowRuns([]*github.WorkflowRun{listed}, []*github.WorkflowRun{known})
+		assert.Equal(t, []*github.WorkflowRun{listed}, merged)
+	})
+}
+
+func TestLatestConclusions(t *testing.T) {
+	at := func(minute int) *github.Timestamp {
+		return &github.Timestamp{Time: time.Date(2026, 11, 9, 18, minute, 0, 0, time.UTC)}
+	}
+	run := func(path, event, status, conclusion string, started *github.Timestamp) *github.WorkflowRun {
+		r := &github.WorkflowRun{
+			Path: github.Ptr(path), Event: github.Ptr(event), Status: github.Ptr(status), RunStartedAt: started,
+		}
+		if conclusion != "" {
+			r.Conclusion = github.Ptr(conclusion)
+		}
+		return r
+	}
+
+	t.Run("newerRunInProgressHidesOlderFailure", func(t *testing.T) {
+		// The pull request was closed and reopened on the same head, which starts a new run
+		conclusions := latestConclusions([]*github.WorkflowRun{
+			run("a.yml", "pull_request", "in_progress", "", at(32)),
+			run("a.yml", "pull_request", "completed", "cancelled", at(23)),
+		})
+		assert.Empty(t, conclusions)
+	})
+
+	t.Run("newerRunCompletedReplacesOlderFailure", func(t *testing.T) {
+		conclusions := latestConclusions([]*github.WorkflowRun{
+			run("a.yml", "pull_request", "completed", "success", at(32)),
+			run("a.yml", "pull_request", "completed", "cancelled", at(23)),
+		})
+		assert.Equal(t, map[string][]string{"a.yml": {"success"}}, conclusions)
+	})
+
+	t.Run("olderRunInProgressDoesNotHideNewerResult", func(t *testing.T) {
+		conclusions := latestConclusions([]*github.WorkflowRun{
+			run("a.yml", "pull_request", "queued", "", at(10)),
+			run("a.yml", "pull_request", "completed", "failure", at(20)),
+		})
+		assert.Equal(t, map[string][]string{"a.yml": {"failure"}}, conclusions)
+	})
+
+	t.Run("unfinishedEventHidesTheWholeWorkflow", func(t *testing.T) {
+		// Otherwise a finished push run would satisfy the policy while the pull_request run is still going
+		conclusions := latestConclusions([]*github.WorkflowRun{
+			run("a.yml", "push", "completed", "success", at(10)),
+			run("a.yml", "pull_request", "in_progress", "", at(20)),
+			run("b.yml", "pull_request", "completed", "success", at(10)),
+		})
+		assert.Equal(t, map[string][]string{"b.yml": {"success"}}, conclusions)
+	})
+
+	t.Run("queuedRunFallsBackToCreatedAt", func(t *testing.T) {
+		queued := run("a.yml", "pull_request", "queued", "", nil)
+		queued.CreatedAt = at(30)
+		conclusions := latestConclusions([]*github.WorkflowRun{
+			run("a.yml", "pull_request", "completed", "failure", at(20)),
+			queued,
+		})
+		assert.Empty(t, conclusions)
+	})
+}

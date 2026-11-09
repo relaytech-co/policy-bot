@@ -143,6 +143,7 @@ type Context interface {
 	// LatestWorkflowRuns returns the latest GitHub Actions workflow runs for
 	// the pull request. The keys of the map are paths to the workflow files and
 	// the values are the conclusions of the latest runs, one per event type.
+	// A workflow whose latest run for any event has not finished is left out.
 	LatestWorkflowRuns() (map[string][]string, error)
 
 	// Labels returns a list of labels applied on the Pull Request

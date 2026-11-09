@@ -15,6 +15,7 @@
           "status": "completed",
           "conclusion": "success",
           "updated_at": "2021-01-01T00:00:00Z",
+          "run_started_at": "2021-01-01T00:00:00Z",
           "html_url": "http://github.localhost/repos/testorg/testrepo/actions/runs/1",
           "pull_requests": []
         },
@@ -26,6 +27,7 @@
           "status": "completed",
           "conclusion": "success",
           "updated_at": "2021-01-01T00:00:00Z",
+          "run_started_at": "2021-01-01T00:00:00Z",
           "pull_requests": []
         }
       ]
@@ -47,6 +49,7 @@
           "status": "completed",
           "conclusion": "cancelled",
           "updated_at": "2021-01-01T00:00:00Z",
+          "run_started_at": "2021-01-01T00:00:00Z",
           "pull_requests": []
         },
         {
@@ -56,6 +59,7 @@
           "status": "in_progress",
           "conclusion": null,
           "updated_at": "2021-01-01T00:00:00Z",
+          "run_started_at": "2021-01-01T00:00:00Z",
           "pull_requests": []
         },
         {
@@ -65,6 +69,7 @@
           "status": "completed",
           "conclusion": "failure",
           "updated_at": "2022-01-01T00:00:00Z",
+          "run_started_at": "2022-01-01T00:00:00Z",
           "pull_requests": []
         },
         {
@@ -74,6 +79,7 @@
           "status": "completed",
           "conclusion": "failure",
           "updated_at": "2020-01-01T00:00:00Z",
+          "run_started_at": "2020-01-01T00:00:00Z",
           "html_url": "http://github.localhost/repos/testorg/testrepo/actions/runs/1",
           "pull_requests": []
         },
@@ -84,6 +90,7 @@
           "status": "completed",
           "conclusion": "skipped",
           "updated_at": "2020-01-01T00:00:00Z",
+          "run_started_at": "2020-01-01T00:00:00Z",
           "html_url": "http://github.localhost/repos/testorg/testrepo/actions/runs/1",
           "pull_requests": []
         }

@@ -40,7 +40,12 @@ func (h *WorkflowRun) Handle(ctx context.Context, eventType, deliveryID string, 
 		return errors.Wrap(err, "failed to parse workflow_run event payload")
 	}
 
-	if event.GetAction() != "completed" {
+	// requested as well as completed, because otherwise a re-run or a run started by reopening the pull request
+	// leaves the status at the previous run's failure until the new run finishes.
+	// in_progress is left out, because the run is already unfinished at requested.
+	switch event.GetAction() {
+	case "requested", "completed":
+	default:
 		return nil
 	}
 
