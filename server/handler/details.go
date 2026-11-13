@@ -23,6 +23,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alexedwards/scs"
 	"github.com/bluekeyes/hatpear"
@@ -67,11 +68,18 @@ func (h *Details) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 		User      string
 		PolicyURL string
 
+		// PullRequestURL is where the header links the pull request
+		PullRequestURL string
+
 		ExpandRequiredReviewers bool
 
 		// CanOverride shows the override button; OverriddenBy names who pressed it for this commit
 		CanOverride  bool
 		OverriddenBy string
+
+		// Workflows are the workflows the policy reads; CanRerun shows the panel for re-running the failed ones
+		Workflows []WorkflowRunRow
+		CanRerun  bool
 
 		Error            error
 		IsTemporaryError bool
@@ -85,6 +93,7 @@ func (h *Details) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 	data.PolicyURL = getPolicyURL(state.PullRequest, evalCtx.Config)
 	data.ExpandRequiredReviewers = h.PullOpts.ExpandRequiredReviewers
 	data.PullRequest = state.PullRequest
+	data.PullRequestURL = h.PullOpts.PullRequestURL(state.PullRequest)
 
 	if canOverride, err := h.PullOpts.CanOverride(ctx, evalCtx.PullContext, state.Username); err != nil {
 		state.Logger.Warn().Err(err).Msg("Failed to check whether the user may override")
@@ -95,6 +104,15 @@ func (h *Details) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 		state.Logger.Warn().Err(err).Msg("Failed to read the current status")
 	} else {
 		data.OverriddenBy = overriddenBy
+	}
+
+	if rows, err := workflowRunRows(evalCtx, time.Now()); err != nil {
+		state.Logger.Warn().Err(err).Msg("Failed to list workflow runs")
+	} else if canRerun, err := h.canRerun(ctx, state, rows); err != nil {
+		state.Logger.Warn().Err(err).Msg("Failed to check whether the user may re-run workflows")
+	} else {
+		data.Workflows = rows
+		data.CanRerun = canRerun && data.OverriddenBy == ""
 	}
 
 	evaluator, err := evalCtx.ParseConfig(ctx, common.TriggerAll)

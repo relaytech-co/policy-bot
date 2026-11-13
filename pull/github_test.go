@@ -693,6 +693,52 @@ func TestLatestWorkflowRuns(t *testing.T) {
 	assert.Equal(t, 2, runsRule.Count, "incorrect http request count")
 }
 
+func TestNewestWorkflowRuns(t *testing.T) {
+	rp := &ResponsePlayer{}
+	rp.AddRule(
+		ExactPathMatcher("/repos/testorg/testrepo/actions/runs"),
+		"testdata/responses/pull_workflow_runs.yml",
+	)
+
+	ctx := makeContext(t, rp, nil, nil)
+	runs, err := ctx.NewestWorkflowRuns()
+	require.NoError(t, err)
+
+	conclusions := make(map[string][]string)
+	for _, run := range runs {
+		assert.NotZero(t, run.ID, "run of %s has no id", run.Path)
+		conclusions[run.Path] = append(conclusions[run.Path], run.Conclusion)
+	}
+	assert.ElementsMatch(t, conclusions[".github/workflows/a.yml"], []string{"success", "skipped"})
+	assert.ElementsMatch(t, conclusions[".github/workflows/b.yml"], []string{"failure"})
+	assert.ElementsMatch(t, conclusions[".github/workflows/c.yml"], []string{"cancelled"})
+}
+
+func TestNewestWorkflowRunsKeepsUnfinishedRuns(t *testing.T) {
+	rp := &ResponsePlayer{}
+	rp.AddRule(
+		ExactPathMatcher("/repos/testorg/testrepo/actions/runs"),
+		"testdata/responses/pull_no_workflow_runs.yml",
+	)
+
+	ctx := makeContext(t, rp, nil, nil)
+	ghc := ctx.(*GitHubContext)
+	ghc.AddWorkflowRun(&github.WorkflowRun{
+		ID: github.Ptr(int64(7)), HeadSHA: github.Ptr(ghc.HeadSHA()), Path: github.Ptr(".github/workflows/d.yml"),
+		Event: github.Ptr("pull_request"), Status: github.Ptr("in_progress"),
+	})
+
+	conclusions, err := ghc.LatestWorkflowRuns()
+	require.NoError(t, err)
+	assert.Empty(t, conclusions, "an unfinished workflow is left out of the conclusions")
+
+	runs, err := ghc.NewestWorkflowRuns()
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, int64(7), runs[0].ID)
+	assert.Equal(t, "in_progress", runs[0].Status)
+}
+
 func TestLatestStatuses(t *testing.T) {
 	pr := defaultTestPR()
 

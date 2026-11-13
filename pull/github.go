@@ -19,6 +19,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -146,6 +147,7 @@ type GitHubContext struct {
 	labels                     []string
 	pushedAt                   map[string]time.Time
 	workflowRuns               map[string][]string
+	newestWorkflowRuns         map[string]map[string]*github.WorkflowRun
 	knownWorkflowRuns          []*github.WorkflowRun
 	repositoryCustomProperties map[string]CustomProperty
 }
@@ -930,8 +932,39 @@ func (ghc *GitHubContext) LatestWorkflowRuns() (map[string][]string, error) {
 		opt.Page = resp.NextPage
 	}
 
-	ghc.workflowRuns = latestConclusions(mergeWorkflowRuns(listed, ghc.knownWorkflowRuns))
+	newest := newestRuns(mergeWorkflowRuns(listed, ghc.knownWorkflowRuns))
+	ghc.workflowRuns = conclusionsOf(newest)
+	ghc.newestWorkflowRuns = newest
 	return ghc.workflowRuns, nil
+}
+
+// NewestWorkflowRuns returns the newest run of each workflow, per event that triggered it, finished or not.
+func (ghc *GitHubContext) NewestWorkflowRuns() ([]WorkflowRun, error) {
+	if _, err := ghc.LatestWorkflowRuns(); err != nil {
+		return nil, err
+	}
+
+	var runs []WorkflowRun
+	for _, eventRuns := range ghc.newestWorkflowRuns {
+		for _, run := range eventRuns {
+			runs = append(runs, WorkflowRun{
+				ID:         run.GetID(),
+				Path:       run.GetPath(),
+				Event:      run.GetEvent(),
+				Status:     run.GetStatus(),
+				Conclusion: run.GetConclusion(),
+				URL:        run.GetHTMLURL(),
+				StartedAt:  startedAt(run),
+			})
+		}
+	}
+	sort.Slice(runs, func(i, j int) bool {
+		if runs[i].Path != runs[j].Path {
+			return runs[i].Path < runs[j].Path
+		}
+		return runs[i].Event < runs[j].Event
+	})
+	return runs, nil
 }
 
 // AddWorkflowRun gives the context a run it already knows the state of, such as the one a workflow_run event is for.
@@ -943,6 +976,7 @@ func (ghc *GitHubContext) AddWorkflowRun(run *github.WorkflowRun) {
 	}
 	ghc.knownWorkflowRuns = append(ghc.knownWorkflowRuns, run)
 	ghc.workflowRuns = nil
+	ghc.newestWorkflowRuns = nil
 }
 
 // mergeWorkflowRuns keeps one copy of each run among the listed and known runs: the one furthest along, or the last
@@ -988,6 +1022,11 @@ func furtherAlong(a, b *github.WorkflowRun) bool {
 // an earlier one failed, such as by reopening the pull request or re-running the workflow, reads as that failure until
 // it finishes. A workflow whose newest run for any event has not finished is left out, so the policy waits for it.
 func latestConclusions(runs []*github.WorkflowRun) map[string][]string {
+	return conclusionsOf(newestRuns(runs))
+}
+
+// newestRuns is the run that started last for each workflow path and event.
+func newestRuns(runs []*github.WorkflowRun) map[string]map[string]*github.WorkflowRun {
 	latest := make(map[string]map[string]*github.WorkflowRun)
 	for _, run := range runs {
 		eventRuns := latest[run.GetPath()]
@@ -1002,7 +1041,10 @@ func latestConclusions(runs []*github.WorkflowRun) map[string][]string {
 		}
 		eventRuns[run.GetEvent()] = run
 	}
+	return latest
+}
 
+func conclusionsOf(latest map[string]map[string]*github.WorkflowRun) map[string][]string {
 	conclusions := make(map[string][]string, len(latest))
 	for path, eventRuns := range latest {
 		var pathConclusions []string

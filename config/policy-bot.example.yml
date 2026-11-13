@@ -171,6 +171,19 @@ sessions:
 #   overriders:
 #     teams: ["org/super-admins"]
 #
+#   # Where the details UI links a pull request, with {owner}, {repo} and {number} filled in.
+#   # Defaults to the pull request on GitHub. Can also be set by the
+#   # POLICYBOT_OPTIONS_PULL_REQUEST_URL_TEMPLATE environment variable.
+#   pull_request_url_template: "https://app.graphite.com/github/pr/{owner}/{repo}/{number}"
+#
+#   # Who may re-run the failed workflows of a pull request from the details UI.
+#   # Takes users, teams, organizations and permissions like a rule's approvers.
+#   # Defaults to anyone with write access. Can also be set as comma-separated lists by the
+#   # POLICYBOT_OPTIONS_RERUNNERS_USERS, _TEAMS, _ORGANIZATIONS and _PERMISSIONS
+#   # environment variables.
+#   rerunners:
+#     permissions: ["write"]
+#
 #   # If true, forces the use of the shared repository policy for all repositories,
 #   # even if they define their own local policy file.
 #   # Can also be set by the POLICYBOT_OPTIONS_FORCE_SHARED_POLICY

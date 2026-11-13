@@ -1172,6 +1172,14 @@ clears the override, since it belongs to the commit. Each override is logged
 as an audit event. Use it when a status cannot pass for reasons outside the
 pull request, such as a GitHub outage leaving a workflow run unfinished.
 
+#### Re-running Workflows <!-- omit in toc -->
+
+When a policy reads `has_workflow_result` and a workflow it reads has failed, timed out or been cancelled,
+the details page lists those workflows in a "Re-run workflows" panel, ticked by default.
+Pressing "Re-run selected" re-runs the failed jobs of each ticked workflow, which puts the status back to pending until they finish.
+Anyone with write access to the repository can do this, or the users, teams, organizations and permissions in the `options.rerunners` server option.
+Each re-run is logged as an audit event. The app needs the **Actions** repository permission with read & write access.
+
 ### Comment Edits <!-- omit in toc -->
 
 GitHub users with sufficient permissions can edit the comments of other users,
@@ -1253,7 +1261,7 @@ The app requires these **repository** permissions:
 
 | Permission | Access | Reason |
 | ---------- | ------ | ------ |
-| Actions | Read-only | Read workflow run events for the `has_workflow_result` predicate |
+| Actions | Read & write | Read workflow runs for the `has_workflow_result` predicate, and re-run failed workflows from the details page |
 | Administration | Read-only | Read repository collaborators and permissions |
 | Checks | Read-only | Read check run results |
 | Commit statuses | Read & write | Post commit statuses |

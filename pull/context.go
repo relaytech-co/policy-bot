@@ -25,6 +25,17 @@ type CommitStatus struct {
 	TargetURL   string
 }
 
+// WorkflowRun is a GitHub Actions workflow run on the head commit
+type WorkflowRun struct {
+	ID         int64
+	Path       string
+	Event      string
+	Status     string
+	Conclusion string
+	URL        string
+	StartedAt  time.Time
+}
+
 // MembershipContext defines methods to get information
 // about about user membership in Github organizations and teams.
 type MembershipContext interface {
@@ -145,6 +156,10 @@ type Context interface {
 	// the values are the conclusions of the latest runs, one per event type.
 	// A workflow whose latest run for any event has not finished is left out.
 	LatestWorkflowRuns() (map[string][]string, error)
+
+	// NewestWorkflowRuns returns the newest GitHub Actions workflow run of each workflow, per event, whether or not
+	// it has finished. It is what LatestWorkflowRuns is read from, with the run's identity kept.
+	NewestWorkflowRuns() ([]WorkflowRun, error)
 
 	// Labels returns a list of labels applied on the Pull Request
 	Labels() ([]string, error)

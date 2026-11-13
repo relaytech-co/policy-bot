@@ -78,6 +78,9 @@ type Context struct {
 	LatestWorkflowRunsValue map[string][]string
 	LatestWorkflowRunsError error
 
+	NewestWorkflowRunsValue []pull.WorkflowRun
+	NewestWorkflowRunsError error
+
 	LabelsValue []string
 	LabelsError error
 
@@ -264,6 +267,10 @@ func (c *Context) LatestStatuses() (map[string]string, error) {
 
 func (c *Context) LatestCommitStatus(context string) (*pull.CommitStatus, error) {
 	return c.CommitStatusesValue[context], c.CommitStatusesError
+}
+
+func (c *Context) NewestWorkflowRuns() ([]pull.WorkflowRun, error) {
+	return c.NewestWorkflowRunsValue, c.NewestWorkflowRunsError
 }
 
 func (c *Context) LatestWorkflowRuns() (map[string][]string, error) {

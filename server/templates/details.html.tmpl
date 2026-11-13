@@ -14,7 +14,7 @@
       {{.PullRequest.GetBase.GetRepo.GetFullName}}: {{.PullRequest.GetBase.GetRef}}
     </a>
     <h1 class="text-xl font-normal tracking-tight text-center">
-      <a href="{{.PullRequest.GetHTMLURL}}" title="View the pull request on GitHub" class="text-blue3 hover:text-blue4 no-underline">
+      <a href="{{.PullRequestURL}}" title="View the pull request" class="text-blue3 hover:text-blue4 no-underline">
         #{{.PullRequest.GetNumber}}</a>:
       {{.PullRequest.GetTitle}}
     </h1>
@@ -61,6 +61,27 @@
         </div>
       </div>
     </div>
+    {{if .CanRerun}}
+    <form method="post" action="{{.BasePath}}/details/{{.PullRequest.GetBase.GetRepo.GetFullName}}/{{.PullRequest.GetNumber}}/rerun"
+          class="mx-8 mt-4 p-3 max-w-xl bg-white dark:bg-dark-gray3 shadow-sm text-sm">
+      <input type="hidden" name="sha" value="{{.PullRequest.GetHead.GetSHA}}"/>
+      <h3 class="font-bold mb-1">Re-run workflows</h3>
+      <p class="text-xs text-dark-gray3 dark:text-light-gray3 mb-2">Re-runs the failed jobs only. Untick a workflow to leave it as it is.</p>
+      <ul>
+        {{range .Workflows}}
+        <li class="flex flex-wrap items-center gap-x-2 py-2 border-t border-light-gray3 dark:border-dark-gray5">
+          <input type="checkbox" id="run-{{.ID}}" name="run" value="{{.ID}}" {{if .Rerunnable}}checked{{else}}disabled{{end}}/>
+          <label for="run-{{.ID}}" class="font-mono text-xs break-all">{{.Name}}</label>
+          <span class="ml-auto px-2 text-xs rounded-full border {{if .Rerunnable}}border-red3 text-red3{{else}}border-light-gray1 dark:border-dark-gray5 text-dark-gray3 dark:text-light-gray3{{end}}">{{.Conclusion}}</span>
+          <span class="basis-full pl-6 text-xs text-dark-gray3 dark:text-light-gray3">
+            {{.Event}} · started {{.Ago}}{{if .URL}} · <a href="{{.URL}}" class="text-blue3 hover:text-blue4">View run</a>{{end}}
+          </span>
+        </li>
+        {{end}}
+      </ul>
+      <button type="submit" class="mt-2 px-3 py-2 rounded-md bg-blue3 hover:bg-blue2 text-white text-sm font-semibold cursor-pointer">Re-run selected</button>
+    </form>
+    {{end}}
     <div class="pl-8 overflow-auto grow">
       <ul class="tree px-4 pb-4" data-hide-status="skipped">
         {{template "results" (args $ .Result)}}

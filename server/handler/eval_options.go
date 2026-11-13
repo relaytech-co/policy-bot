@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/go-github/v92/github"
 	"github.com/palantir/policy-bot/policy/approval"
 	"github.com/palantir/policy-bot/policy/common"
 	"github.com/palantir/policy-bot/pull"
@@ -66,6 +67,14 @@ type PullEvaluationOptions struct {
 	// Overriders may mark a pull request's status successful from the details page, as users, teams, organizations or permissions.
 	// The override lasts until a new commit is pushed. Unset disables it.
 	Overriders *common.Actors `yaml:"overriders"`
+
+	// PullRequestURLTemplate is where the details page links a pull request, with {owner}, {repo} and {number} filled in.
+	// Unset links to the pull request on GitHub.
+	PullRequestURLTemplate string `yaml:"pull_request_url_template"`
+
+	// Rerunners may re-run failed workflows from the details page, as users, teams, organizations or permissions.
+	// Unset allows anyone with write access to the repository.
+	Rerunners *common.Actors `yaml:"rerunners"`
 
 	// ExpandRequiredReviewers enables a UI feature where the details page
 	// shows a list of the users who can approve each rule. Enabling this
@@ -130,6 +139,28 @@ func (p *PullEvaluationOptions) CanOverride(ctx context.Context, prctx pull.Cont
 	return p.Overriders.IsActor(ctx, prctx, user)
 }
 
+// PullRequestURL returns where the details page links the pull request.
+func (p *PullEvaluationOptions) PullRequestURL(pr *github.PullRequest) string {
+	if p.PullRequestURLTemplate == "" {
+		return pr.GetHTMLURL()
+	}
+	repo := pr.GetBase().GetRepo()
+	return strings.NewReplacer(
+		"{owner}", repo.GetOwner().GetLogin(),
+		"{repo}", repo.GetName(),
+		"{number}", strconv.Itoa(pr.GetNumber()),
+	).Replace(p.PullRequestURLTemplate)
+}
+
+// CanRerun reports whether user may re-run failed workflows of the pull request in prctx.
+func (p *PullEvaluationOptions) CanRerun(ctx context.Context, prctx pull.Context, user string) (bool, error) {
+	rerunners := p.Rerunners
+	if rerunners.IsZero() {
+		rerunners = &common.Actors{Permissions: []pull.Permission{pull.PermissionWrite}}
+	}
+	return rerunners.IsActor(ctx, prctx, user)
+}
+
 // PostsSeparateInsecureStatus reports whether a second, branchless status is worth posting.
 // It is redundant when the branch is already left out of every context.
 func (p *PullEvaluationOptions) PostsSeparateInsecureStatus() bool {
@@ -173,6 +204,7 @@ func (p *PullEvaluationOptions) SetValuesFromEnv(prefix string) {
 	setStringFromEnv("STATUS_CHECK_CONTEXT", prefix, &p.StatusCheckContext)
 	setBoolPtrFromEnv("INCLUDE_BRANCH_IN_STATUS_CONTEXT", prefix, &p.IncludeBranchInStatusContext)
 	setStringFromEnv("POLICY_FROM_DEFAULT_BRANCH_HEAD_PREFIX", prefix, &p.PolicyFromDefaultBranchHeadPrefix)
+	setStringFromEnv("PULL_REQUEST_URL_TEMPLATE", prefix, &p.PullRequestURLTemplate)
 	setBoolFromEnv("FORCE_SHARED_POLICY", prefix, &p.ForceSharedPolicy)
 	setBoolFromEnv("ALLOW_PRIVATE_REMOTES", prefix, &p.AllowPrivateRemotes)
 	setBoolFromEnv("EXPAND_REQUIRED_REVIEWERS", prefix, &p.ExpandRequiredReviewers)
@@ -182,6 +214,7 @@ func (p *PullEvaluationOptions) SetValuesFromEnv(prefix string) {
 
 	p.setApprovalDefaultsFromEnv(prefix + "APPROVAL_DEFAULTS_")
 	p.setOverridersFromEnv(prefix + "OVERRIDERS_")
+	p.setRerunnersFromEnv(prefix + "RERUNNERS_")
 
 	p.fillDefaults()
 }
@@ -198,6 +231,21 @@ func (p *PullEvaluationOptions) setOverridersFromEnv(prefix string) {
 		setListFromEnv("PERMISSIONS", prefix, &overriders.Permissions),
 	) {
 		p.Overriders = overriders
+	}
+}
+
+func (p *PullEvaluationOptions) setRerunnersFromEnv(prefix string) {
+	rerunners := p.Rerunners
+	if rerunners == nil {
+		rerunners = &common.Actors{}
+	}
+	if isAny(
+		setStringListFromEnv("USERS", prefix, &rerunners.Users),
+		setStringListFromEnv("TEAMS", prefix, &rerunners.Teams),
+		setStringListFromEnv("ORGANIZATIONS", prefix, &rerunners.Organizations),
+		setListFromEnv("PERMISSIONS", prefix, &rerunners.Permissions),
+	) {
+		p.Rerunners = rerunners
 	}
 }
 
